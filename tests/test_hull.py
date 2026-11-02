@@ -98,6 +98,9 @@ class FakeOllama:
     def json(self, model, prompt, schema, images=(), system=""):
         time.sleep(self.delay)
         self.calls += 1
+        if "part_of" in schema["properties"]:
+            self.asked = prompt
+            return {"part_of": prompt.startswith('On a viewer\'s map of the topics of the YouTube videos they see, is "video games"'), "why": "it's a game"}
         return {"topics": next(t for title, t in self.TOPICS.items() if f"Title: {title}" in prompt)}
 
     def embed(self, model, texts):
@@ -146,7 +149,7 @@ class TestBlockAndFocus(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = Store(tmp)
             c = culture(store, FakeOllama())
-            c.block, c.focus, c.focus_at = ["video games"], ["statistics"], 0.6
+            c.block, c.focus, c.focus_at, c.focus_ask = ["video games"], ["statistics"], 0.6, 0.6
             rs = c.decide([Video("a", title="GTA 6 trailer"), Video("b", title="Bayes in 10 minutes"), Video("m", title="Minecraft redstone")])
             self.assertEqual([r.why for r in rs], ["video games is near video games", "", "video games is near video games"])
             self.assertEqual(rs[1].fields["focus"], "1.00 statistics")
@@ -158,6 +161,32 @@ class TestBlockAndFocus(unittest.TestCase):
                 c.graph.attest(f"p{i}", ["pymc", "statistics"])
             r = c.decide([Video("j", title="PyMC install")])[0]
             self.assertEqual((r.decision, r.fields["focus"]), ("pass", "0.60 pymc through statistics"))  # 3 of its 5 videos
+            store.db.close()
+
+
+class TestGemmaJudges(unittest.TestCase):
+    def test_in_between_gemma_decides_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(tmp)
+            c = culture(store, FakeOllama())
+            c.block, c.block_at, c.block_ask = ["video games"], 1.01, 0.5  # everything near is "in between"
+            r = c.decide([Video("m", title="Minecraft redstone")])[0]
+            self.assertEqual((r.decision, r.why), ("hide", "video games is near video games: it's a game"))
+            n = c.ollama.calls
+            c.decide([Video("m", title="Minecraft redstone")])
+            self.assertEqual(c.ollama.calls, n)  # asked once
+            store.db.close()
+
+    def test_focus_asks_with_the_graph_as_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(tmp)
+            c = culture(store, FakeOllama())
+            c.focus, c.focus_at, c.focus_ask = ["statistics"], 1.01, 0.0
+            store._keep(Video("m", title="Minecraft redstone"), 0)
+            r = c.decide([Video("m", title="Minecraft redstone")])[0]
+            self.assertEqual(r.why, "off focus: minecraft isn't statistics (it's a game)")
+            self.assertIn('Videos about "minecraft": Minecraft redstone', c.ollama.asked)
+            self.assertEqual(Culture({}, store).verdicts[("minecraft", "statistics")][0], False)  # on disk
             store.db.close()
 
 

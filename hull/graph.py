@@ -86,7 +86,9 @@ class Graph:
 
     def neighbours(self, name):
         """[(topic, share of this topic's videos it's also on)], most shared first"""
-        i = self.index[name]
+        i = self.index.get(name)
+        if i is None:
+            return []
         n = self.db.execute("select count(*) from video_topics where topic_id = ?", (self.ids[i],)).fetchone()[0]
         if n < 2:
             return []
