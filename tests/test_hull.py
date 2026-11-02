@@ -158,16 +158,16 @@ class TestBlockAndFocus(unittest.TestCase):
             c = culture(store, FakeOllama())
             c.block, c.focus, c.focus_at, c.focus_ask = ["video games"], ["statistics"], 0.6, 0.6
             rs = c.decide([Video("a", title="GTA 6 trailer"), Video("b", title="Bayes in 10 minutes"), Video("m", title="Minecraft redstone")])
-            self.assertEqual([r.why for r in rs], ["video games is near video games", "", "video games is near video games"])
-            self.assertEqual(rs[1].fields["focus"], "1.00 statistics")
+            self.assertEqual([r.why for r in rs], ["gta vi is in what you block (video games)", "", "minecraft is in what you block (video games)"])
+            self.assertEqual(rs[1].fields["focus"], "in your focus area: bayes theorem")  # every bayes video is about statistics
             c.block = []
             self.assertEqual(c.decide([Video("m", title="Minecraft redstone")])[0].why, "off focus (nearest: minecraft, 0.00)")
-            # "pymc" isn't worded like "statistics"; once most of its videos are about statistics, it's near
+            # "pymc" isn't worded like "statistics"; once most of its videos are about statistics, it's in the area
             self.assertEqual(c.decide([Video("i", title="PyMC install")])[0].decision, "hide")
             for i in range(3):
                 c.graph.attest(f"p{i}", ["pymc", "statistics"])
             r = c.decide([Video("j", title="PyMC install")])[0]
-            self.assertEqual((r.decision, r.fields["focus"]), ("pass", "0.60 pymc through statistics"))  # 3 of its 5 videos
+            self.assertEqual((r.decision, r.fields["focus"]), ("pass", "in your focus area: pymc"))  # 3 of its 5 videos
             store.db.close()
 
 
@@ -176,7 +176,7 @@ class TestGemmaJudges(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = Store(tmp)
             c = culture(store, FakeOllama())
-            c.block, c.block_at, c.block_ask = ["video games"], 1.01, 0.5  # everything near is "in between"
+            c.block, c.block_at, c.block_ask, c.seed = ["video games"], 1.01, 0.5, 1.01  # no area: everything near is "in between"
             r = c.decide([Video("m", title="Minecraft redstone")])[0]
             self.assertEqual((r.decision, r.why), ("hide", "video games is near video games: it's a game"))
             n = c.ollama.calls
@@ -188,7 +188,7 @@ class TestGemmaJudges(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = Store(tmp)
             c = culture(store, FakeOllama())
-            c.focus, c.focus_at, c.focus_ask = ["statistics"], 1.01, 0.0
+            c.focus, c.focus_at, c.focus_ask, c.seed = ["statistics"], 1.01, 0.0, 1.01
             store._keep(Video("m", title="Minecraft redstone"), 0)
             r = c.decide([Video("m", title="Minecraft redstone")])[0]
             self.assertEqual(r.why, "off focus: minecraft isn't statistics (it's a game)")
@@ -365,6 +365,26 @@ class TestHullWithRudder(unittest.IsolatedAsyncioTestCase):
         r = (await out.get()).reply.results[0]
         self.assertEqual((r.decision, r.why), (pb.HIDE, "hull broken failed: out of memory"))
 
+
+
+class TestAreas(unittest.TestCase):
+    def test_a_goal_covers_its_area_of_the_map(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(tmp)
+            c = culture(store, FakeOllama())
+            g = c.graph
+            for vid, topics in {"1": ["video games", "minecraft"], "2": ["video games", "frostpunk", "city building"], "3": ["city building", "frostpunk"],
+                                "4": ["video games", "music"], **{f"m{i}": ["music", "pop music"] for i in range(5)}}.items():
+                g.attest(vid, topics)
+            c.focus, c.reach["focus"] = ["video games"], (0.5, 2)  # frostpunk: one edge; city building: two
+            area = c.area("focus")
+            self.assertEqual(area, {"video games", "minecraft", "frostpunk", "city building"})  # music touched it once: 1 of 6
+            self.assertEqual(c.judge(["minecraft", "pirates"]).fields["focus"], "in your focus area: minecraft")
+            self.assertEqual(c.marks(["frostpunk", "music"]), {"frostpunk": "focus"})
+            c.focus, c.block = [], ["video games"]
+            self.assertEqual(c.judge(["city building"]).decision, "hide")
+            self.assertEqual(c.judge(["pop music"]).decision, "pass")
+            store.db.close()
 
 
 class TestGoal(unittest.TestCase):

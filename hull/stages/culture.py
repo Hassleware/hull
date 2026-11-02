@@ -7,7 +7,9 @@ it has been said (`heard_chars` of its captions): its title and what's said in i
 their content, not just how they're sold (table watched). Videos not tagged within `budget` seconds are
 hidden for now (strict) and keep being tagged; Rudder asks again the next time YouTube sends them.
 
-Then the graph decides (relatedness: hull/graph.py):
+Then your map decides (hull/graph.py). Each goal covers an area of the map: the goal's topics, topics that mean the
+same (`area_seed`), and up to `*_hops` edges out, neighbours most of whose videos (`*_link`) are already in the area.
+Topics outside every area are judged by meaning (`*_at`) and, in between, by Gemma:
   - block: a video with a topic at least `block_at` near a blocked topic is hidden, e.g. block = ["grand theft
     auto"] hides Los Santos, GTA RP, Michael De Santa;
   - focus: when set, only videos with a topic at least `focus_at` near a focus topic are shown, e.g. focus =
@@ -21,8 +23,9 @@ config: { "model": "gemma4:e4b", "embed_model": "embeddinggemma", "ollama": "htt
           "budget": 18,      # seconds per batch, under Rudder's 25
           "merge": 0.94,     # cosine at which a new topic name is an old one
           "heard_chars": 600,  # captions heard before a watched video is tagged again from them
-          "block": [], "block_at": 0.85, "block_ask": 0.7,
-          "focus": [], "focus_at": 0.75, "focus_ask": 0.62 }
+          "area_seed": 0.85,
+          "block": [], "block_at": 0.85, "block_ask": 0.7, "block_link": 0.5, "block_hops": 1,
+          "focus": [], "focus_at": 0.75, "focus_ask": 0.62, "focus_link": 0.5, "focus_hops": 1 }
 """
 import concurrent.futures as cf, io, logging, threading, time
 
@@ -43,12 +46,14 @@ Topics that share videos with "{topic}" on the map: {neighbours}
 Videos about "{topic}": {titles}
 Answer part_of, and why in a few words."""
 GOAL_SCHEMA = {"type": "object", "properties": {
-    "focus": {"type": "array", "items": {"type": "string"}, "maxItems": 8},
-    "block": {"type": "array", "items": {"type": "string"}, "maxItems": 8}}, "required": ["focus", "block"]}
-GOAL = """A viewer says what they want YouTube for. Turn it into topics for their filter:
-- focus: only if they want nothing but certain subjects (they say "only", "just", "nothing else"): those subjects. Otherwise focus is empty: liking something is not wanting only it;
-- block: subjects they never want to see.
-Short lowercase noun phrases naming the subject or field itself, like "bayesian statistics" or "grand theft auto". Reuse these topics from their map, word for word, when one fits: {known}
+    "focus": {"type": "array", "items": {"type": "string"}, "maxItems": 30},
+    "block": {"type": "array", "items": {"type": "string"}, "maxItems": 30}}, "required": ["focus", "block"]}
+GOAL = """A viewer says what they want YouTube for. Turn it into the topics of their filter, the way someone who knows the subject well would.
+- focus: only if they want nothing but certain subjects (they say "only", "just", "nothing else"); otherwise empty, since liking something is not wanting only it. When they do, list each subject broadly: the field itself, its main kinds and parts, the communities and people around it, and every topic on their map below that belongs to it. For someone who only wants cooking, that means cooking, recipes, baking, specific dishes and cuisines, chefs and cooking channels, food science.
+- block: subjects they never want to see, each listed just as broadly.
+Short lowercase noun phrases. Use their map's topics word for word where they fit, and add the subject's other important parts even if their map doesn't have them yet.
+
+Their map (most seen first): {known}
 
 The viewer: {text}"""
 PROMPT = """Name this YouTube video's topics: 3 to 6 short lowercase noun phrases, from the most specific (the exact subject: the game, show, person, technique or idea) up to its broad field (such as "video games", "statistics", "cooking", "music").
@@ -86,6 +91,9 @@ class Culture:
         self.block, self.block_at = [t.lower() for t in config.get("block", [])], config.get("block_at", 0.85)
         self.focus, self.focus_at = [t.lower() for t in config.get("focus", [])], config.get("focus_at", 0.75)
         self.block_ask, self.focus_ask = config.get("block_ask", 0.7), config.get("focus_ask", 0.62)
+        self.seed = config.get("area_seed", 0.85)
+        self.reach = {"block": (config.get("block_link", 0.5), config.get("block_hops", 1)),
+                      "focus": (config.get("focus_link", 0.5), config.get("focus_hops", 1))}
         self.anchor_vecs = {}  # block/focus topic → its embedding
         store.db.execute("create table if not exists judgements (topic text, anchor text, part_of integer, why text, primary key (topic, anchor))")
         self.db = store.db
@@ -158,7 +166,8 @@ class Culture:
 
     def draft_goal(self, text):
         """a goal in the viewer's words → {"text", "focus": [...], "block": [...]}, drafted by Gemma with the map's names"""
-        known = ", ".join(self.graph.nearest(self.graph.embed([text])[0], 20)) or "(none yet)"
+        top = self.db.execute("select name from topics order by videos desc limit 150").fetchall()
+        known = ", ".join(r[0] for r in top) or "(none yet)"
         r = self.ollama.json(self.model, GOAL.format(known=known, text=text), GOAL_SCHEMA, system=SYSTEM)
         clean = lambda xs: list(dict.fromkeys(x.strip().lower() for x in xs if x.strip()))
         return {"text": text.strip(), "focus": clean(r["focus"]), "block": clean(r["block"])}
@@ -168,8 +177,11 @@ class Culture:
         None. Only what's known: it never asks Gemma or embeds anything new."""
         if any(n not in self.anchor_vecs for n in self.focus + self.block):
             return {}
-        out = {}
+        out, block, focus = {}, self.area("block"), self.area("focus")
         for name in names:
+            if name in block or name in focus:
+                out[name] = "block" if name in block else "focus"
+                continue
             for anchors, at, ask, mark in ((self.block, self.block_at, self.block_ask, "block"), (self.focus, self.focus_at, self.focus_ask, "focus")):
                 if not anchors or name not in self.graph.index:
                     continue
@@ -215,8 +227,23 @@ class Culture:
                 f.add_done_callback(lambda f: f.exception() and log.warning("couldn't ask about %s: %s", topic, f.exception()))
         return None
 
+    def area(self, kind):
+        """the topics in the goal's focus or block area of the map"""
+        anchors = self.focus if kind == "focus" else self.block
+        if not anchors:
+            return set()
+        return self.graph.area(self.anchors(anchors)[1], self.seed, *self.reach[kind])
+
     def judge(self, topics):
         fields = {"topics": "; ".join(topics)}
+        blocked = [t for t in topics if t in self.area("block")]
+        if blocked:
+            return Result("hide", f"{blocked[0]} is in what you block ({', '.join(self.block[:3])}{'…' if len(self.block) > 3 else ''})", fields)
+        if self.focus:
+            inside = [t for t in topics if t in self.area("focus")]
+            if inside:
+                fields["focus"] = f"in your focus area: {inside[0]}"
+                return Result(fields=fields)
         if self.block:
             s, topic, anchor, via = self.graph.nearness(topics, *self.anchors(self.block))
             near = f"{topic} is near {anchor}" + (f" (through {via})" if via else "")
