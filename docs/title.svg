@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 6230 2790" width="900" role="img" aria-label="HULL">
+<rect x="40" y="40" width="6150" height="2710" fill="#f2ede1" stroke="#111" stroke-width="80"/>
+<g transform="translate(520 220)" fill="#111">
+<path d="M135 1840.6H440V1213.6H1000V1840.6H1305V350.6H1000V963.6H440V350.6H135Z"/><path fill="#5BB8F0" fill-rule="evenodd" transform="translate(1483 350.6) scale(1.0)" d="M-70 -130H1300V-45H-70ZM0 0H1230V560C1230 1060 975 1410 690 1440L670 1600H560L540 1440C255 1410 0 1060 0 560ZM305 0H925V560C925 960 790 1150 615 1150C440 1150 305 960 305 560Z"/><path d="M2893 1840.6H3883V1587.6H3198V350.6H2893Z"/><path d="M4063 1840.6H5053V1587.6H4368V350.6H4063Z"/>
+</g>
+</svg>
