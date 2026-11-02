@@ -210,9 +210,10 @@ class GoalBox(QFrame):
         self.draft = QPushButton("DRAFT WITH GEMMA")
         self.draft.clicked.connect(self.ask)
         row.addWidget(self.draft)
-        self.note = label("", "lbl")
-        row.addWidget(self.note, 1)
         v.addLayout(row)
+        self.note = label("", "lbl")
+        self.note.setWordWrap(True)
+        v.addWidget(self.note)
         self.focus, self.block = Chips("SHOW ONLY WHAT'S NEAR (empty: everything)"), Chips("NEVER SHOW WHAT'S NEAR")
         v.addWidget(self.focus)
         v.addWidget(self.block)
@@ -250,7 +251,8 @@ class GoalBox(QFrame):
         if isinstance(goal, Exception):
             self.note.setText(f"COULDN'T REACH GEMMA: {goal}"[:80])
             return
-        self.note.setText("CHECK THE TOPICS, THEN APPLY")
+        self.note.setText(f"GEMMA SORTED {goal.get('sorted', 0)} MAP TOPICS: {len(goal['focus'])} FOR, {len(goal['block'])} AGAINST. "
+                          "WITH ANY 'FOR' TOPIC ONLY THOSE SHOW. CHECK, THEN APPLY")
         self.focus.set(goal["focus"])
         self.block.set(goal["block"])
 

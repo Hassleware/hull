@@ -45,17 +45,23 @@ ASK = """On a viewer's map of the topics of the YouTube videos they see, is "{to
 Topics that share videos with "{topic}" on the map: {neighbours}
 Videos about "{topic}": {titles}
 Answer part_of, and why in a few words."""
-GOAL_SCHEMA = {"type": "object", "properties": {
-    "focus": {"type": "array", "items": {"type": "string"}, "maxItems": 30},
-    "block": {"type": "array", "items": {"type": "string"}, "maxItems": 30}}, "required": ["focus", "block"]}
-GOAL = """A viewer says what they want YouTube for. Turn it into the topics of their filter, the way someone who knows the subject well would.
-- focus: only if they want nothing but certain subjects (they say "only", "just", "nothing else"); otherwise leave it empty. When they do, list each subject broadly: the field itself, its main kinds and parts, the communities and people around it, and every topic on their map below that belongs to it. For someone who only wants cooking, that means cooking, recipes, baking, specific dishes and cuisines, chefs and cooking channels, food science.
-- block: subjects they never want to see, each listed just as broadly.
-Short lowercase noun phrases. Use their map's topics word for word where they fit, and add the subject's other important parts even if their map doesn't have them yet.
-
-Their map (most seen first): {known}
+SIDES = {"type": "object", "properties": {"for": {"type": "array", "items": {"type": "string"}, "maxItems": 40},
+                                          "against": {"type": "array", "items": {"type": "string"}, "maxItems": 40}},
+         "required": ["for", "against"]}
+GOAL = """A viewer says what they want YouTube for. Draft both sides of their filter, the way someone who knows the subject well would, as fully as you can:
+- for: the subjects their goal is for. List each one broadly: the field itself, its main kinds and parts, specific well-known examples, the communities, people and channels around it, and how it's made, reviewed and talked about. For someone who wants cooking, that means cooking, recipes, baking, specific dishes and cuisines, chefs and cooking channels, food science, kitchen equipment, restaurant reviews.
+- against: the subjects their goal is against: what they say they don't want, and what pulls them away from their goal (for someone studying, distractions such as drama, gossip, pranks, reaction videos). List each one just as broadly.
+Only subjects where a video about it is a video they came for (or one they'd never want): leave out subjects that only share a word or a tool with it. Short lowercase noun phrases.
 
 The viewer: {text}"""
+SORT = """A viewer's goal for YouTube: {text}
+Their goal is for: {pro}
+Their goal is against: {con}
+
+Label every topic from their map:
+- "for": a video about it is a video they came for (a part, kind or example of what they want, or its people and communities);
+- "against": they don't want it, or it pulls them away from their goal; when they want only certain subjects, everything unrelated to those is against;
+- "neither": anything else, including topics that only share a word or a tool with what they want."""
 PROMPT = """Name this YouTube video's topics: 3 to 6 short lowercase noun phrases, from the most specific (the exact subject: the game, show, person, technique or idea) up to its broad field (such as "video games", "statistics", "cooking", "music").
 Name the subject itself: in "100 days in Los Santos" the subject is grand theft auto v, the game Los Santos belongs to. Name the franchise or field a place, character or term belongs to. Use the thumbnail too.
 Topics already on this viewer's map, to reuse word for word when one fits: {known}
@@ -170,13 +176,38 @@ class InternetCulture:
             known[vid] = f.result() if f.done() and not f.exception() else None
         return [known[v.id] for v in videos]
 
-    def draft_goal(self, text):
-        """a goal in the viewer's words → {"text", "focus": [...], "block": [...]}, drafted by Gemma with the map's names"""
-        top = self.db.execute("select name from topics order by videos desc limit 150").fetchall()
-        known = ", ".join(r[0] for r in top) or "(none yet)"
-        r = self.ollama.json(self.model, GOAL.format(known=known, text=text), GOAL_SCHEMA, system=SYSTEM)
+    def draft_goal(self, text, batch=40):
+        """a goal in the viewer's words → {"text", "focus", "block", "sorted"}: Gemma drafts what it's for and against,
+        then sorts every topic on the map (in batches, side by side) into for, against or neither"""
         clean = lambda xs: list(dict.fromkeys(x.strip().lower() for x in xs if x.strip()))
-        return {"text": text.strip(), "focus": clean(r["focus"]), "block": clean(r["block"])}
+        names = [r[0] for r in self.db.execute("select name from topics order by videos desc")]
+        r = self.ollama.json(self.model, GOAL.format(text=text), SIDES, system=SYSTEM)  # the subject itself; the map is sorted next
+        pro, con = clean(r["for"]), clean(r["against"])
+
+        def sort(chunk):
+            # one label per topic, required: Gemma has to judge each one, and can't invent names
+            labels = {"type": "object", "properties": {t: {"enum": ["for", "against", "neither"]} for t in chunk}, "required": chunk}
+            got = self.ollama.json(self.model, SORT.format(text=text, pro=", ".join(pro) or "nothing named", con=", ".join(con) or "nothing named"),
+                                   labels, system=SYSTEM)
+            return [t for t in chunk if got.get(t) == "for"], [t for t in chunk if got.get(t) == "against"]
+        for p_, c_ in self.pool.map(sort, [names[i:i + batch] for i in range(0, len(names), batch)]):
+            pro += p_
+            con += c_
+        pro, con = clean(pro), clean(con)
+        # Gemma mislabels some map topics "for" (fatbergs for a gamer): keep one only if it's clearly alike in meaning
+        # to what the goal is for (≥ 0.75), or sits in the map's area around the ones that are
+        on = [t for t in pro if t in self.graph.index]
+        if on:
+            want = self.graph.embed(clean(r["for"]) or on)
+            sim = {t: float((want @ self.graph.vecs[self.graph.index[t]]).max()) for t in on}
+            sure = [t for t in on if sim[t] >= 0.75]
+            area = self.graph.area(self.graph.vecs[[self.graph.index[t] for t in sure]], 0.99, 0.5, 2) if sure else set()
+            pro = [t for t in pro if t not in self.graph.index or sim[t] >= 0.75 or t in area]
+        both = set(pro) & set(con)  # Gemma said both: what the first draft said wins, else it's left out
+        first = set(clean(r["for"])), set(clean(r["against"]))
+        pro = [x for x in pro if x not in both or x in first[0]]
+        con = [x for x in con if x not in both or (x in first[1] and x not in first[0])]
+        return {"text": text.strip(), "focus": pro, "block": con, "sorted": len(names)}
 
     def marks(self, names):
         """what the goal does with each topic, for the internet culture map: "focus", "block", "ask" (Gemma hasn't decided yet) or

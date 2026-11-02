@@ -102,8 +102,11 @@ class FakeOllama:
         if "What's said in it" in prompt:
             self.heard_prompt = prompt
             return {"topics": ["bayes theorem", "probability theory"]}
-        if "focus" in schema["properties"]:
-            return {"focus": ["Statistics ", "statistics"], "block": ["video games"]}
+        if prompt.startswith("A viewer's goal"):  # sorting the map: a label for every topic
+            return {t: "for" if t in ("bayes theorem", "probability theory") else "against" if t == "video games" else "neither"
+                    for t in schema["properties"]}
+        if "against" in schema["properties"]:
+            return {"for": ["Statistics ", "statistics"], "against": ["video games", "drama"]}
         if "part_of" in schema["properties"]:
             self.asked = prompt
             return {"part_of": prompt.startswith('On a viewer\'s map of the topics of the YouTube videos they see, is "video games"'), "why": "it's a game"}
@@ -394,11 +397,19 @@ class TestAreas(unittest.TestCase):
 
 
 class TestGoal(unittest.TestCase):
-    def test_gemma_drafts_a_goal(self):
+    def test_gemma_drafts_both_sides_and_sorts_the_map(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = Store(tmp)
             c = internet_culture(store, FakeOllama())
-            self.assertEqual(c.draft_goal(" learn stats, no games "), {"text": "learn stats, no games", "focus": ["statistics"], "block": ["video games"]})
+            for vid, topics in {"1": ["bayes theorem", "statistics"], "2": ["video games", "minecraft"], "3": ["probability theory"]}.items():
+                c.graph.attest(vid, topics)
+            g = c.draft_goal(" learn stats, no games ", batch=2)  # the map's 5 topics in 3 batches
+            self.assertEqual(g["text"], "learn stats, no games")
+            self.assertEqual(g["sorted"], 5)
+            # bayes theorem shares a video with statistics: kept; probability theory, labelled "for" but alone on the map
+            # and unlike statistics in meaning: a stray, dropped
+            self.assertEqual(set(g["focus"]), {"statistics", "bayes theorem"})
+            self.assertEqual(g["block"], ["video games", "drama"])
             store.db.close()
 
 
