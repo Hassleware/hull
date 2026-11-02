@@ -274,8 +274,8 @@ class TitleBar(QFrame):
     def __init__(self, window):
         super().__init__()
         self.window_ = window
-        self.setFixedHeight(34)
-        self.setStyleSheet(f"TitleBar {{ background: {PAPER}; border-bottom: 2px solid {INK}; }}")
+        self.setFixedHeight(32)  # the rule under it is its own line (Window), so the buttons' dividers meet it cleanly
+        self.setStyleSheet(f"TitleBar {{ background: {PAPER}; border: 0; }}")
         row = QHBoxLayout(self)
         row.setContentsMargins(10, 0, 0, 0)
         row.setSpacing(8)
@@ -286,6 +286,10 @@ class TitleBar(QFrame):
         name.setStyleSheet("font-weight: 700; letter-spacing: 2px;")
         row.addWidget(name)
         row.addStretch(1)
+        buttons = QHBoxLayout()  # flush together: no gaps between their dividers
+        buttons.setContentsMargins(0, 0, 0, 0)
+        buttons.setSpacing(0)
+        row.addLayout(buttons)
         self.max = None
         for text, tip, act, hover in (("—", "Minimise", window.showMinimized, INK), ("▢", "Maximise", self.toggle, INK),
                                       ("×", "Close: Hull keeps steering from the tray", window.close, RED)):
@@ -293,10 +297,10 @@ class TitleBar(QFrame):
             b.setToolTip(tip)
             b.setFixedSize(46, 32)
             b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            b.setStyleSheet(f"QPushButton {{ border: 0; border-left: 2px solid {INK}; font-size: 15px; padding: 0; }}"
+            b.setStyleSheet(f"QPushButton {{ border: 0; border-left: 2px solid {INK}; font-size: 15px; padding: 0; margin: 0; }}"
                             f"QPushButton:hover {{ background: {hover}; color: {PAPER}; }}")
             b.clicked.connect(act)
-            row.addWidget(b)
+            buttons.addWidget(b)
             if text == "▢":
                 self.max = b
 
@@ -340,6 +344,10 @@ class Window(QMainWindow):
         outer.setSpacing(0)
         self.bar = TitleBar(self)
         outer.addWidget(self.bar)
+        rule = QFrame()
+        rule.setFixedHeight(2)
+        rule.setStyleSheet(f"background: {INK}; border: 0;")
+        outer.addWidget(rule)
         self.setCentralWidget(frame)
         page = QWidget()
         page.setObjectName("page")
