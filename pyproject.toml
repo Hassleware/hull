@@ -3,7 +3,7 @@ name = "hull"
 version = "0.1.0"
 description = "Hull: local algorithms that drive Rudder's YouTube filtering through its gRPC API."
 requires-python = ">=3.11"
-dependencies = ["grpcio>=1.85", "protobuf>=6.31"]
+dependencies = ["grpcio>=1.85", "protobuf>=6.31", "numpy>=2", "pillow>=11"]
 
 [project.optional-dependencies]
 dev = ["grpcio-tools>=1.85"]  # scripts/sync_proto.py

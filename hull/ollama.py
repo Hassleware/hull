@@ -1,0 +1,30 @@
+"""Ollama, the local model server (http://127.0.0.1:11434), over its HTTP API with the standard library. Hull runs
+Gemma through it: Ollama loads the model onto the GPU, falls back to the processor, and unloads it when idle."""
+import base64, json, urllib.request
+
+import numpy as np
+
+
+class Ollama:
+    def __init__(self, address="http://127.0.0.1:11434", timeout=60):
+        self.address, self.timeout = address.rstrip("/"), timeout
+
+    def _post(self, path, body):
+        req = urllib.request.Request(self.address + path, json.dumps(body).encode(), {"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=self.timeout) as r:
+            return json.loads(r.read())
+
+    def json(self, model, prompt, schema, images=(), system=""):
+        """a reply in the shape of a JSON schema (Ollama constrains the output to it)"""
+        r = self._post("/api/generate", {
+            "model": model, "prompt": prompt, "system": system, "format": schema, "stream": False, "think": False,
+            "images": [base64.b64encode(i).decode() for i in images], "options": {"temperature": 0},
+            "keep_alive": "30m"})
+        return json.loads(r["response"])
+
+    def embed(self, model, texts):
+        """unit-length vectors (float32), one row per text"""
+        if not texts:
+            return np.zeros((0, 0), np.float32)
+        v = np.array(self._post("/api/embed", {"model": model, "input": list(texts), "keep_alive": "30m"})["embeddings"], np.float32)
+        return v / np.maximum(np.linalg.norm(v, axis=1, keepdims=True), 1e-9)
