@@ -4,7 +4,7 @@
 address = "127.0.0.1:7833"  # Rudder's API (start Rudder's bridge: bridge/bridge.py in the Rudder repo)
 
 [pipeline]
-after = "keywords"     # Hull's stages go right after this Rudder stage (or at the end if it isn't there)
+after = "your-clicks"  # Hull's stages go right after this Rudder stage: only your own ratings come first
 when_missing = "hide"  # if Hull stops without cleaning up, Rudder hides what Hull would have checked ("pass" to let them through)
 
 [data]

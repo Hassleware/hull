@@ -4,7 +4,7 @@ from pathlib import Path
 
 DEFAULTS = {
     "rudder": {"address": "127.0.0.1:7833"},  # Rudder's API (its bridge)
-    "pipeline": {"after": "keywords", "when_missing": "hide"},
+    "pipeline": {"after": "your-clicks", "when_missing": "hide"},
     "data": {"folder": "data"},
     "stage": [],
 }

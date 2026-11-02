@@ -4,7 +4,8 @@ While running, Hull:
   - serves its stages: Rudder sends batches of videos, each Hull stage decides them in a worker thread;
   - steers, when switched on: one Rudder "app" stage per Hull stage sits in Rudder's pipeline, after the stage named
     in hull.toml. Switched off, Hull takes them out and Rudder filters on its own;
-  - always records every video Rudder decides (WatchVideos), puts on screen (WatchShown) and, for videos you watch,
+  - always records every video Rudder decides (WatchVideos), every like and dislike (WatchFeedback), every video it
+    puts on screen (WatchShown) and, for videos you watch,
     every caption line as you watch it (WatchCaptions), and passes them to the stages, so the internet culture graph and the
     repeats list keep growing even while Hull isn't steering;
   - shows a "Hull" panel in Rudder's popup, saying whether it steers.
@@ -116,7 +117,7 @@ class Hull:
             await asyncio.sleep(5)
 
     async def session(self, rudder):
-        tasks = [asyncio.create_task(t) for t in (self.serve(rudder), self.watch(rudder), self.watch_shown(rudder), self.watch_captions(rudder), self.watch_state(rudder))]
+        tasks = [asyncio.create_task(t) for t in (self.serve(rudder), self.watch(rudder), self.watch_shown(rudder), self.watch_captions(rudder), self.watch_feedback(rudder), self.watch_state(rudder))]
         try:
             await self.wait_for_app(rudder)
             await (self.join(rudder) if self.steering else self.leave_pipeline(rudder))
@@ -192,8 +193,24 @@ class Hull:
         self.store.stage_results(sid, videos, results, ms)
 
     async def watch(self, rudder):
+        """every video Rudder decides: recorded, and passed to stages (the internet culture stage tags the ones its own
+        stage never got: hidden by a stage before it, or decided by your own ratings)"""
         async for e in rudder.WatchVideos(pb.Empty()):
-            self.store.record(Video.from_pb(e.video), e.outcome.hidden, e.outcome.decided_by, e.outcome.why)
+            v = Video.from_pb(e.video)
+            self.store.record(v, e.outcome.hidden, e.outcome.decided_by, e.outcome.why)
+            for st in self.stages.values():
+                if hasattr(st, "seen"):
+                    await asyncio.to_thread(st.seen, v)
+
+    async def watch_feedback(self, rudder):
+        """your likes and dislikes: recorded, and passed to stages (the internet culture stage tags the video, watched
+        or not)"""
+        async for f in rudder.WatchFeedback(pb.Empty()):
+            v = Video.from_pb(f.video)
+            self.store.rated(v, f.like)
+            for st in self.stages.values():
+                if hasattr(st, "seen"):
+                    await asyncio.to_thread(st.seen, v)
 
     async def watch_shown(self, rudder):
         async for e in rudder.WatchShown(pb.Empty()):

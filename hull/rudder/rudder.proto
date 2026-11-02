@@ -37,6 +37,8 @@ service Rudder {
   // Captions of the videos you watch, line by line as you watch them (English: Rudder asks the player for them).
   // Lines you skip past aren't sent.
   rpc WatchCaptions(Empty) returns (stream Caption);
+  // Your likes and dislikes (Rudder's "more / less like this" and YouTube's 👍 / 👎), with the video's record.
+  rpc WatchFeedback(Empty) returns (stream Feedback);
   // The newest videos the bridge has seen (up to 500), newest first.
   rpc GetVideos(VideosRequest) returns (VideoEvents);
   // Run videos through the current pipeline without showing, counting or remembering them. For tests.
@@ -92,6 +94,12 @@ message VideoEvent {
 message Shown {
   repeated string ids = 1;
   int64 at_ms = 2;  // Unix ms
+}
+
+message Feedback {
+  Video video = 1;
+  bool like = 2;  // true: more like this / 👍; false: less like this / 👎
+  int64 at_ms = 3;
 }
 
 message Caption {

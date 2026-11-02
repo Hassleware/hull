@@ -15,6 +15,8 @@ create table if not exists stage_results (  -- what a Hull stage said about it
   video_id text, stage text, at real, decision text, why text, fields text, ms real);
 create table if not exists shown (  -- each time Rudder put it on screen
   video_id text, at_ms integer);
+create table if not exists ratings (  -- your likes and dislikes (Rudder: WatchFeedback)
+  video_id text, liked integer, at real);
 create table if not exists captions (  -- what was said in the videos you watched, line by line as you watched it
   video_id text, start_ms integer, end_ms integer, text text, auto integer, at real);
 create index if not exists captions_video on captions(video_id);
@@ -109,6 +111,13 @@ class Store:
         self.db.executemany("insert into shown values (?,?)", [(i, at_ms) for i in ids])
         self.db.commit()
 
+    def rated(self, video, like):
+        """a like or dislike, with the video's record"""
+        now = time.time()
+        self._keep(video, now)
+        self.db.execute("insert into ratings values (?,?,?)", (video.id, int(like), now))
+        self.db.commit()
+
     def captions(self, lines):
         """caption lines of a video you're watching (Rudder: WatchCaptions)"""
         now = time.time()
@@ -122,6 +131,7 @@ class Store:
             "hidden": one("select count(distinct video_id) from outcomes where hidden = 1"),
             "shown": one("select count(distinct video_id) from shown"),
             "watched": one("select count(distinct video_id) from captions"),
+            "rated": one("select count(distinct video_id) from ratings"),
             "thumbnails": sum(1 for _ in (self.folder / "thumbs").iterdir()),
             "hid_by_stage": dict(self.db.execute("select stage, count(distinct video_id) from stage_results where decision = 'hide' group by stage").fetchall()),
             "ms_by_stage": dict(self.db.execute("select stage, avg(ms) from stage_results group by stage").fetchall()),

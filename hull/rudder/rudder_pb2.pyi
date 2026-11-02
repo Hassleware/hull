@@ -90,6 +90,16 @@ class Shown(_message.Message):
     at_ms: int
     def __init__(self, ids: _Optional[_Iterable[str]] = ..., at_ms: _Optional[int] = ...) -> None: ...
 
+class Feedback(_message.Message):
+    __slots__ = ("video", "like", "at_ms")
+    VIDEO_FIELD_NUMBER: _ClassVar[int]
+    LIKE_FIELD_NUMBER: _ClassVar[int]
+    AT_MS_FIELD_NUMBER: _ClassVar[int]
+    video: Video
+    like: bool
+    at_ms: int
+    def __init__(self, video: _Optional[_Union[Video, _Mapping]] = ..., like: _Optional[bool] = ..., at_ms: _Optional[int] = ...) -> None: ...
+
 class Caption(_message.Message):
     __slots__ = ("video_id", "start_ms", "end_ms", "text", "language", "auto")
     VIDEO_ID_FIELD_NUMBER: _ClassVar[int]

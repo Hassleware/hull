@@ -118,6 +118,12 @@ class InternetCulture:
         r = self.ollama.json(self.model, prompt, SCHEMA, jpeg(v.thumbnail) if v.thumbnail else [], SYSTEM)
         return self.graph.attest(v.id, r["topics"])
 
+    def seen(self, v):
+        """a video Rudder decided or you rated: tagged in the background if it isn't yet, so the map holds everything
+        you're shown or rate, whichever stage decided it"""
+        if v.title and self.graph.topics_of(v.id) is None:
+            return self._start(v)
+
     def heard(self, video_id, text):
         """a caption line of a video you're watching: once enough is said, Gemma tags it again from it (once per video)"""
         with self.lock:

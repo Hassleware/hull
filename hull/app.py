@@ -476,7 +476,8 @@ class Window(QMainWindow):
         goal = {"focus": f'<span style="background:{BLUE}">&nbsp;NEAR YOUR FOCUS&nbsp;</span>', "block": f'<span style="background:{RED}">&nbsp;NEAR WHAT YOU BLOCK&nbsp;</span>',
                 "ask": "GEMMA HASN'T DECIDED YET"}.get(mark, "outside your goal" if (self.internet_culture.focus or self.internet_culture.block) else "no goal set")
         neighbours = self.internet_culture.graph.neighbours(name)[:8]
-        videos = db.execute("""select v.title, exists(select 1 from shown s where s.video_id = v.id) + exists(select 1 from watched w where w.video_id = v.id),
+        videos = db.execute("""select v.title || coalesce((select case r.liked when 1 then ' ▲' else ' ▼' end from ratings r where r.video_id = v.id order by r.at desc limit 1), ''),
+                                      exists(select 1 from shown s where s.video_id = v.id) + exists(select 1 from watched w where w.video_id = v.id),
                                       (select o.hidden from outcomes o where o.video_id = v.id order by o.at desc limit 1)
                                from video_topics vt join topics t on t.id = vt.topic_id join videos v on v.id = vt.video_id
                                where t.name = ? and v.title != '' order by v.first_recorded desc limit 8""", (name,)).fetchall()
@@ -485,7 +486,7 @@ class Window(QMainWindow):
             f'<b style="font-size:15px">{e(name)}</b><br>{count} videos · {goal}' + (f"<br><i>Gemma: {e(why)}</i>" if why else "") +
             "<br><br><b>NEIGHBOURS</b><br>" + (" · ".join(f'<a href="{e(u)}" style="color:{INK}">{e(u)}</a> {share:.0%}' for u, share in neighbours) or "none yet") +
             "<br><br><b>VIDEOS</b><br>" + "<br>".join(f"{'▶' if s == 2 else '▣' if s else ('▢' if h is None else '▨')} {e(t[:44])}" for t, s, h in videos if t.strip()) +
-            "<br><span style='font-size:10px'>▶ WATCHED · ▣ SHOWN · ▨ HIDDEN · ▢ NOT ON SCREEN</span>")
+            "<br><span style='font-size:10px'>▶ WATCHED · ▣ SHOWN · ▨ HIDDEN · ▢ NOT ON SCREEN · ▲ LIKED · ▼ DISLIKED</span>")
 
     def edges(self, pos):
         """which window edges a point is on, for resizing"""

@@ -35,7 +35,9 @@ pip install -e .
 python -m hull
 ```
 
-Hull opens its window, loads the models, joins Rudder's pipeline right after Rudder's `keywords` stage, and shows a **Hull** panel in Rudder's popup.
+Hull opens its window, loads the models, joins Rudder's pipeline right after Rudder's `your-clicks` stage (so only your own ratings come before it, and Rudder's keywords after), and shows a **Hull** panel in Rudder's popup.
+
+Hull checks every video Rudder filters (the home page, the sidebar beside a video, search results, channel pages, Shorts) before it's shown. It also maps every video Rudder reports, whichever stage decided it, and every video you like or dislike, watched or not (`WatchFeedback`): Gemma tags it in the background, so your map holds all of it.
 
 ## The app
 
@@ -144,6 +146,7 @@ Everything is in `data/`:
   | `shown`, `shown_prints` | When videos were put on screen; shown titles and thumbnail hashes |
   | `topics`, `video_topics` | The internet culture graph: topics with their embeddings, and which videos attest to which |
   | `judgements` | Gemma's answers to "is X part of Y?" |
+  | `ratings` | Your likes and dislikes |
   | `captions`, `watched` | What was said in the videos you watched, line by line; when each was tagged again from it |
 
 - `shown.bloom`: the Bloom filter of shown ids.

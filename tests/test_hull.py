@@ -261,6 +261,12 @@ class FakeRudder(rpc.RudderServicer):
         yield pb.Shown(ids=["bread"], at_ms=1)
         await asyncio.Event().wait()
 
+    async def WatchFeedback(self, request, context):
+        while not self.answered:
+            await asyncio.sleep(0.05)
+        yield pb.Feedback(video=pb.Video(id="liked", title="A video you liked"), like=True)
+        await asyncio.Event().wait()
+
     async def WatchCaptions(self, request, context):
         await asyncio.Event().wait()
         yield pb.Caption()
@@ -285,17 +291,17 @@ class TestHullWithRudder(unittest.IsolatedAsyncioTestCase):
             task = asyncio.create_task(hull.main())
 
             reply = await asyncio.wait_for(fake.replies.get(), 10)
-            self.assertEqual([s.id for s in fake.stages], ["your-clicks", "keywords", "hull-rules", "learned", "thumbnail-text"])
-            config = MessageToDict(fake.stages[2].config)
+            self.assertEqual([s.id for s in fake.stages], ["your-clicks", "hull-rules", "keywords", "learned", "thumbnail-text"])  # before the keywords
+            config = MessageToDict(fake.stages[1].config)
             self.assertEqual((config["name"], config["stage"], config["when_missing"], config["remember"]), ("hull", "rules", "hide", False))
             self.assertEqual([(r.decision, r.why) for r in reply.results], [(pb.HIDE, "GTA"), (pb.PASS, "")])
 
             for _ in range(100):  # the video event and the panel
-                if fake.panels and store.stats()["videos"] == 2 and store.stats()["shown"]:
+                if fake.panels and store.stats()["videos"] == 3 and store.stats()["shown"] and store.stats()["rated"]:
                     break
                 await asyncio.sleep(0.05)
             s = store.stats()
-            self.assertEqual((s["videos"], s["thumbnails"], s["hid_by_stage"], s["shown"]), (2, 1, {"rules": 1}, 1))
+            self.assertEqual((s["videos"], s["thumbnails"], s["hid_by_stage"], s["shown"], s["rated"]), (3, 1, {"rules": 1}, 1, 1))
             self.assertEqual(s["recent"], [("GTA 6 trailer", "rules", "GTA")])
             self.assertEqual(fake.panels[-1].title, "Hull")
 
@@ -393,6 +399,19 @@ class TestGoal(unittest.TestCase):
             store = Store(tmp)
             c = internet_culture(store, FakeOllama())
             self.assertEqual(c.draft_goal(" learn stats, no games "), {"text": "learn stats, no games", "focus": ["statistics"], "block": ["video games"]})
+            store.db.close()
+
+
+class TestIngest(unittest.TestCase):
+    def test_videos_seen_or_rated_are_tagged_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(tmp)
+            c = internet_culture(store, FakeOllama())
+            c.seen(Video("a", title="GTA 6 trailer")).result()  # hidden by a stage before Hull's tagging, say
+            self.assertEqual(c.graph.topics_of("a"), ["gta vi", "rockstar games", "video games"])
+            n = c.ollama.calls
+            self.assertIsNone(c.seen(Video("a", title="GTA 6 trailer")))  # already on the map
+            self.assertEqual(c.ollama.calls, n)
             store.db.close()
 
 
