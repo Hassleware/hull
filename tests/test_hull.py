@@ -18,13 +18,13 @@ RULES = {"rules": [{"pattern": "los santos|\\bgta\\b", "action": "hide", "why": 
 
 class TestRules(unittest.TestCase):
     def test_first_match_decides(self):
-        rs = Rules(RULES).decide([Video("a", title="listening to bangers on the Los Santos train"), Video("b", title="Calm piano"),
+        rs = Rules(RULES, None).decide([Video("a", title="listening to bangers on the Los Santos train"), Video("b", title="Calm piano"),
                                   Video("c", title="Bread", fields={"thumbnail_text": "GTA 6"}), Video("d", title="Bread")])
         self.assertEqual([(r.decision, r.why) for r in rs], [("hide", "GTA"), ("show", "calm"), ("hide", "GTA"), ("pass", "")])
 
     def test_bad_action_refused(self):
         with self.assertRaises(ValueError):
-            Rules({"rules": [{"pattern": "x", "action": "maybe"}]})
+            Rules({"rules": [{"pattern": "x", "action": "maybe"}]}, None)
 
 
 class FakeRudder(rpc.RudderServicer):
@@ -32,7 +32,7 @@ class FakeRudder(rpc.RudderServicer):
 
     def __init__(self):
         self.stages = [pb.Stage(id=i, kind=i) for i in ("your-clicks", "keywords", "learned", "thumbnail-text")]
-        self.apps, self.panels, self.replies = set(), [], asyncio.Queue()
+        self.apps, self.panels, self.replies, self.answered = set(), [], asyncio.Queue(), False
 
     async def GetState(self, request, context):
         return pb.State(connected=True, apps=sorted(self.apps), stages=[s.id for s in self.stages])
@@ -55,12 +55,19 @@ class FakeRudder(rpc.RudderServicer):
         yield req
         reply = await anext(requests)
         await self.replies.put(reply.reply)
+        self.answered = True
         async for _ in requests:
             pass
 
     async def WatchVideos(self, request, context):
         yield pb.VideoEvent(video=pb.Video(id="bread", title="Bread at home", thumbnail=b"\xff\xd8jpg", thumbnail_type="image/jpeg"),
                             outcome=pb.Outcome(hidden=False))
+        await asyncio.Event().wait()
+
+    async def WatchShown(self, request, context):
+        while not self.answered:  # after the stage answered
+            await asyncio.sleep(0.05)
+        yield pb.Shown(ids=["bread"], at_ms=1)
         await asyncio.Event().wait()
 
     async def SetPanel(self, request, context):
@@ -85,15 +92,15 @@ class TestHullWithRudder(unittest.IsolatedAsyncioTestCase):
             reply = await asyncio.wait_for(fake.replies.get(), 10)
             self.assertEqual([s.id for s in fake.stages], ["your-clicks", "keywords", "hull-rules", "learned", "thumbnail-text"])
             config = MessageToDict(fake.stages[2].config)
-            self.assertEqual((config["name"], config["stage"], config["when_missing"]), ("hull", "rules", "hide"))
+            self.assertEqual((config["name"], config["stage"], config["when_missing"], config["remember"]), ("hull", "rules", "hide", False))
             self.assertEqual([(r.decision, r.why) for r in reply.results], [(pb.HIDE, "GTA"), (pb.PASS, "")])
 
             for _ in range(100):  # the video event and the panel
-                if fake.panels and store.stats()["videos"] == 2:
+                if fake.panels and store.stats()["videos"] == 2 and store.stats()["shown"]:
                     break
                 await asyncio.sleep(0.05)
             s = store.stats()
-            self.assertEqual((s["videos"], s["thumbnails"], s["hid_by_stage"]), (2, 1, {"rules": 1}))
+            self.assertEqual((s["videos"], s["thumbnails"], s["hid_by_stage"], s["shown"]), (2, 1, {"rules": 1}, 1))
             self.assertEqual(s["recent"], [("GTA 6 trailer", "rules", "GTA")])
             self.assertEqual(fake.panels[-1].title, "Hull")
 

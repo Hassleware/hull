@@ -3,7 +3,8 @@
 While running, Hull:
   - serves its stages: Rudder sends batches of videos, each Hull stage decides them in a worker thread;
   - sits in Rudder's pipeline: one Rudder "app" stage per Hull stage, placed after the stage named in hull.toml;
-  - records every video Rudder decides (WatchVideos) into the store;
+  - records every video Rudder decides (WatchVideos) and every one it puts on screen (WatchShown) into the store, and
+    tells the stages what was shown;
   - shows a "Hull" panel in Rudder's popup.
 It reconnects on its own when the bridge or Firefox isn't there yet. On a clean exit it takes its stages back out of
 Rudder's pipeline, so YouTube works normally without Hull; if it crashes instead, Rudder hides what Hull would have
@@ -36,10 +37,12 @@ class Hull:
         for s in cfg["stage"]:
             if s["kind"] not in KINDS:
                 raise ValueError(f"hull.toml: unknown stage kind {s['kind']!r} (kinds: {', '.join(KINDS)})")
-            self.stages[s["id"]] = KINDS[s["kind"]](s["config"])
+            self.stages[s["id"]] = KINDS[s["kind"]](s["config"], store)
             # the version changes with the stage's config, so Rudder judges every video again after an edit
             version = hashlib.sha1(json.dumps([s["kind"], s["config"]], sort_keys=True).encode()).hexdigest()[:10]
-            self.configs[s["id"]] = {"name": APP, "stage": s["id"], "version": version, "when_missing": self.when_missing}
+            # remember: false, so Rudder asks again each time YouTube sends a video: Hull's answers change as it learns
+            # (a video shown once is a repeat the next time). Hull keeps its own per-video work, so asking again is cheap.
+            self.configs[s["id"]] = {"name": APP, "stage": s["id"], "version": version, "when_missing": self.when_missing, "remember": False}
 
     def rudder_stages(self):
         out = []
@@ -66,7 +69,7 @@ class Hull:
             await asyncio.sleep(5)
 
     async def session(self, rudder):
-        tasks = [asyncio.create_task(self.serve(rudder)), asyncio.create_task(self.watch(rudder))]
+        tasks = [asyncio.create_task(self.serve(rudder)), asyncio.create_task(self.watch(rudder)), asyncio.create_task(self.watch_shown(rudder))]
         try:
             await self.join(rudder)
             tasks.append(asyncio.create_task(self.panel(rudder)))
@@ -133,6 +136,14 @@ class Hull:
     async def watch(self, rudder):
         async for e in rudder.WatchVideos(pb.Empty()):
             self.store.record(Video.from_pb(e.video), e.outcome.hidden, e.outcome.decided_by, e.outcome.why)
+
+    async def watch_shown(self, rudder):
+        async for e in rudder.WatchShown(pb.Empty()):
+            ids = list(e.ids)
+            self.store.shown(ids, e.at_ms)
+            for st in self.stages.values():
+                if hasattr(st, "shown"):
+                    await asyncio.to_thread(st.shown, ids)
 
     async def panel(self, rudder):
         """Hull's panel in Rudder's popup, redrawn every 5 s"""

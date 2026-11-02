@@ -30,6 +30,8 @@ service Rudder {
   // ---- video data ----
   // Every video Rudder decides, with its record and outcome, as it happens.
   rpc WatchVideos(Empty) returns (stream VideoEvent);
+  // The videos Rudder puts on screen, as it happens (a decided video may never be shown: the user didn't get to it).
+  rpc WatchShown(Empty) returns (stream Shown);
   // The newest videos the bridge has seen (up to 500), newest first.
   rpc GetVideos(VideosRequest) returns (VideoEvents);
   // Run videos through the current pipeline without showing, counting or remembering them. For tests.
@@ -78,6 +80,11 @@ message VideoEvent {
   Outcome outcome = 2;
 }
 
+message Shown {
+  repeated string ids = 1;
+  int64 at_ms = 2;  // Unix ms
+}
+
 message VideosRequest {
   int32 limit = 1;  // 0 = all the bridge has (up to 500)
   bool thumbnails = 2;  // include the image bytes
@@ -94,7 +101,9 @@ message Stage {
   string kind = 2;  // your-clicks, keywords, learned, thumbnail-text, app
   // keywords, thumbnail-text: { "filters": [...] } (default: the popup's); thumbnail-text: { "min_letters": 4 }
   // learned: { "can_show": true } lets it show videos like ones you liked (a show skips every stage after it)
-  // app: { "name": "my-app", "when_missing": "hide" | "pass", ...anything your app reads from StageRequest.config }
+  // app: { "name": "my-app", "when_missing": "hide" | "pass", "remember": false, ...anything your app reads from
+  //        StageRequest.config }. Rudder keeps an app's answer for a video; with "remember": false it asks the app
+  //        again each time YouTube sends the video (a new page, a refresh), for answers that change, like "seen before".
   google.protobuf.Struct config = 3;
 }
 

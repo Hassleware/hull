@@ -9,7 +9,7 @@ from hull.video import DECISIONS, Result
 
 
 class Rules:
-    def __init__(self, config):
+    def __init__(self, config, store=None):
         self.rules = []
         for r in config.get("rules", []):
             action = r.get("action", "hide")

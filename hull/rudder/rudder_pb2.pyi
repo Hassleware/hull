@@ -76,6 +76,14 @@ class VideoEvent(_message.Message):
     outcome: Outcome
     def __init__(self, video: _Optional[_Union[Video, _Mapping]] = ..., outcome: _Optional[_Union[Outcome, _Mapping]] = ...) -> None: ...
 
+class Shown(_message.Message):
+    __slots__ = ("ids", "at_ms")
+    IDS_FIELD_NUMBER: _ClassVar[int]
+    AT_MS_FIELD_NUMBER: _ClassVar[int]
+    ids: _containers.RepeatedScalarFieldContainer[str]
+    at_ms: int
+    def __init__(self, ids: _Optional[_Iterable[str]] = ..., at_ms: _Optional[int] = ...) -> None: ...
+
 class VideosRequest(_message.Message):
     __slots__ = ("limit", "thumbnails")
     LIMIT_FIELD_NUMBER: _ClassVar[int]
