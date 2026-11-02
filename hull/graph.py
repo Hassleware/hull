@@ -2,6 +2,12 @@
 phrases, each with an embedding); a video attests to a few of them (video_topics), and topics that share videos are
 linked by how often they do. Kept in hull.db; the topic vectors are also held in memory for fast lookups.
 
+How near a topic is to another (relatedness): the larger of
+  - how alike their meanings are (cosine of their embeddings), and
+  - through a neighbour: for each topic u that shares videos with it, the share of its videos u is on, times how
+    alike u is to the other. So "pymc", rarely worded like "bayesian statistics", becomes near it once most videos
+    about pymc are also about bayesian statistics. Topics seen on fewer than 2 videos have no neighbours yet.
+
 Names are merged on the way in: a new name whose embedding is within `merge` cosine of a known topic ("mcmc
 methods" → "markov chain monte carlo") becomes that topic, so the graph doesn't fill with spellings of one idea.
 """
@@ -26,6 +32,7 @@ class Graph:
         rows = self.db.execute("select id, name, vec from topics order by id").fetchall()
         self.ids = [r[0] for r in rows]
         self.names = [r[1] for r in rows]
+        self.index = {n: i for i, n in enumerate(self.names)}
         self.vecs = np.array([np.frombuffer(r[2], np.float32) for r in rows]) if rows else np.zeros((0, 768), np.float32)
 
     def embed(self, texts):
@@ -63,8 +70,8 @@ class Graph:
 
     def _find(self, name, vec):
         """index of the topic this name is (a new one if none is close enough)"""
-        if name in self.names:
-            return self.names.index(name)
+        if name in self.index:
+            return self.index[name]
         if len(self.names):
             sims = self.vecs @ vec
             best = int(np.argmax(sims))
@@ -73,8 +80,31 @@ class Graph:
         cur = self.db.execute("insert into topics (name, vec) values (?,?)", (name, vec.astype(np.float32).tobytes()))
         self.ids.append(cur.lastrowid)
         self.names.append(name)
+        self.index[name] = len(self.names) - 1
         self.vecs = np.vstack([self.vecs, vec[None, :]])
         return len(self.names) - 1
+
+    def neighbours(self, name):
+        """[(topic, share of this topic's videos it's also on)], most shared first"""
+        i = self.index[name]
+        n = self.db.execute("select count(*) from video_topics where topic_id = ?", (self.ids[i],)).fetchone()[0]
+        if n < 2:
+            return []
+        rows = self.db.execute("""select t.name, count(*) from video_topics a join video_topics b on b.video_id = a.video_id and b.topic_id != a.topic_id
+                                  join topics t on t.id = b.topic_id where a.topic_id = ? group by b.topic_id order by 2 desc""", (self.ids[i],)).fetchall()
+        return [(u, c / n) for u, c in rows]
+
+    def nearness(self, names, anchors, anchor_vecs):
+        """the nearest of a video's topics to any anchor: (relatedness, its topic, the anchor, the neighbour it went
+        through or None)"""
+        best = (-1.0, "", "", None)
+        for name in names:
+            for u, share in [(name, 1.0), *self.neighbours(name)]:  # itself first, so it wins ties
+                sims = anchor_vecs @ self.vecs[self.index[u]]
+                a = int(np.argmax(sims))
+                if share * sims[a] > best[0]:
+                    best = (round(float(share * sims[a]), 4), name, anchors[a], None if u == name else u)
+        return best
 
     def stats(self):
         one = lambda q: self.db.execute(q).fetchone()[0]

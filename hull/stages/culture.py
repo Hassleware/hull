@@ -5,13 +5,21 @@ Gemma runs in Ollama with the title, channel, description, Rudder's thumbnail te
 the known topics nearest the video, so it reuses the graph's names. Videos not tagged within `budget` seconds are
 hidden for now (strict) and keep being tagged; Rudder asks again the next time YouTube sends them.
 
+Then the graph decides (relatedness: hull/graph.py):
+  - block: a video with a topic at least `block_at` near a blocked topic is hidden, e.g. block = ["grand theft
+    auto"] hides Los Santos, GTA RP, Michael De Santa;
+  - focus: when set, only videos with a topic at least `focus_at` near a focus topic are shown, e.g. focus =
+    ["bayesian statistics"] for a student learning just that.
+
 config: { "model": "gemma4:e4b", "embed_model": "embeddinggemma", "ollama": "http://127.0.0.1:11434",
           "parallel": 6,     # requests to Ollama at once
           "budget": 18,      # seconds per batch, under Rudder's 25
-          "merge": 0.94 }    # cosine at which a new topic name is an old one
+          "merge": 0.94,     # cosine at which a new topic name is an old one
+          "block": [], "block_at": 0.85, "focus": [], "focus_at": 0.75 }
 """
 import concurrent.futures as cf, io, logging, threading
 
+import numpy as np
 from PIL import Image
 
 from hull.graph import Graph
@@ -51,12 +59,15 @@ class Culture:
         self.graph = Graph(store, self.ollama, config.get("embed_model", "embeddinggemma"), config.get("merge", 0.94))
         self.pool = cf.ThreadPoolExecutor(config.get("parallel", 6))
         self.tagging, self.lock = {}, threading.Lock()  # video id → its tagging, while it runs
+        self.block, self.block_at = [t.lower() for t in config.get("block", [])], config.get("block_at", 0.85)
+        self.focus, self.focus_at = [t.lower() for t in config.get("focus", [])], config.get("focus_at", 0.75)
+        self.anchor_vecs = {}  # block/focus topic → its embedding
 
     def warm(self):
         """load both models before Rudder sends anything (a cold Gemma takes ~50 s, past Rudder's 25)"""
         self.ollama.timeout = 300
         self.ollama.json(self.model, "Say ok.", {"type": "object", "properties": {"ok": {"type": "string"}}})
-        self.graph.embed(["warm"])
+        self.anchors(self.block + self.focus)
         self.ollama.timeout = 60
 
     def tag(self, v):
@@ -90,9 +101,28 @@ class Culture:
             known[vid] = f.result() if f.done() and not f.exception() else None
         return [known[v.id] for v in videos]
 
+    def anchors(self, names):
+        missing = [n for n in names if n not in self.anchor_vecs]
+        if missing or not names:
+            for n, v in zip(missing or ["warm"], self.graph.embed(missing or ["warm"])):
+                self.anchor_vecs[n] = v
+        return names, (np.array([self.anchor_vecs[n] for n in names]) if names else None)
+
+    def judge(self, topics):
+        fields = {"topics": "; ".join(topics)}
+        if self.block:
+            s, topic, anchor, via = self.graph.nearness(topics, *self.anchors(self.block))
+            if s >= self.block_at:
+                return Result("hide", f"{topic} is near {anchor}" + (f" (through {via})" if via else ""), fields)
+        if self.focus:
+            s, topic, anchor, via = self.graph.nearness(topics, *self.anchors(self.focus))
+            fields["focus"] = f"{s:.2f} {topic}" + (f" through {via}" if via else "")
+            if s < self.focus_at:
+                return Result("hide", f"off focus (nearest: {topic}, {s:.2f})", fields)
+        return Result(fields=fields)
+
     def decide(self, videos):
-        return [Result(fields={"topics": "; ".join(t)}) if t else Result("hide", "not tagged yet")
-                for t in self.topics(videos)]
+        return [self.judge(t) if t else Result("hide", "not tagged yet") for t in self.topics(videos)]
 
     def describe(self):
         s = self.graph.stats()

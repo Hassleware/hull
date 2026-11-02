@@ -31,3 +31,5 @@ kind = "culture"
 [stage.config]
 model = "gemma4:e4b"
 embed_model = "embeddinggemma"
+# block = ["grand theft auto"]        # hide videos near these topics in your culture graph (block_at = 0.85)
+# focus = ["bayesian statistics"]     # show only videos near these (focus_at = 0.75): a learning harness

@@ -88,7 +88,8 @@ class TestNearDuplicates(unittest.TestCase):
 class FakeOllama:
     """Gemma and embeddinggemma in miniature: topics from a table, embeddings from hashed words"""
     TOPICS = {"GTA 6 trailer": ["gta vi", "rockstar games", "video games"], "Bayes in 10 minutes": ["bayes theorem", "statistics"],
-              "Rockstar's next game": ["grand theft auto vi", "video games"]}
+              "Rockstar's next game": ["grand theft auto vi", "video games"], "PyMC models": ["pymc", "statistics"],
+              "PyMC install": ["pymc", "python"], "Minecraft redstone": ["minecraft", "video games"]}
     SAME = {"grand theft auto vi": "gta vi"}  # names embeddinggemma would put together
 
     def __init__(self, delay=0):
@@ -137,6 +138,26 @@ class TestCulture(unittest.TestCase):
             self.assertEqual(c.decide([Video("a", title="GTA 6 trailer")])[0].why, "not tagged yet")
             c.pool.shutdown(wait=True)
             self.assertEqual(c.graph.topics_of("a"), ["gta vi", "rockstar games", "video games"])
+            store.db.close()
+
+
+class TestBlockAndFocus(unittest.TestCase):
+    def test_block_and_focus_through_the_graph(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(tmp)
+            c = culture(store, FakeOllama())
+            c.block, c.focus, c.focus_at = ["video games"], ["statistics"], 0.6
+            rs = c.decide([Video("a", title="GTA 6 trailer"), Video("b", title="Bayes in 10 minutes"), Video("m", title="Minecraft redstone")])
+            self.assertEqual([r.why for r in rs], ["video games is near video games", "", "video games is near video games"])
+            self.assertEqual(rs[1].fields["focus"], "1.00 statistics")
+            c.block = []
+            self.assertEqual(c.decide([Video("m", title="Minecraft redstone")])[0].why, "off focus (nearest: minecraft, 0.00)")
+            # "pymc" isn't worded like "statistics"; once most of its videos are about statistics, it's near
+            self.assertEqual(c.decide([Video("i", title="PyMC install")])[0].decision, "hide")
+            for i in range(3):
+                c.graph.attest(f"p{i}", ["pymc", "statistics"])
+            r = c.decide([Video("j", title="PyMC install")])[0]
+            self.assertEqual((r.decision, r.fields["focus"]), ("pass", "0.60 pymc through statistics"))  # 3 of its 5 videos
             store.db.close()
 
 
