@@ -268,6 +268,57 @@ class GoalBox(QFrame):
         threading.Thread(target=work, daemon=True).start()
 
 
+class TitleBar(QFrame):
+    """Hull's own window bar, in Rudder's style: the hull, HULL, and square minimise / maximise / close buttons.
+    Moving and snapping go through the system (startSystemMove), so Windows' snap layouts still work."""
+    def __init__(self, window):
+        super().__init__()
+        self.window_ = window
+        self.setFixedHeight(34)
+        self.setStyleSheet(f"TitleBar {{ background: {PAPER}; border-bottom: 2px solid {INK}; }}")
+        row = QHBoxLayout(self)
+        row.setContentsMargins(10, 0, 0, 0)
+        row.setSpacing(8)
+        icon = QSvgWidget(str(ASSETS / "hull-icon.svg"))
+        icon.setFixedSize(18, 18)
+        row.addWidget(icon)
+        name = label("HULL")
+        name.setStyleSheet("font-weight: 700; letter-spacing: 2px;")
+        row.addWidget(name)
+        row.addStretch(1)
+        self.max = None
+        for text, tip, act, hover in (("—", "Minimise", window.showMinimized, INK), ("▢", "Maximise", self.toggle, INK),
+                                      ("×", "Close: Hull keeps steering from the tray", window.close, RED)):
+            b = QPushButton(text)
+            b.setToolTip(tip)
+            b.setFixedSize(46, 32)
+            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            b.setStyleSheet(f"QPushButton {{ border: 0; border-left: 2px solid {INK}; font-size: 15px; padding: 0; }}"
+                            f"QPushButton:hover {{ background: {hover}; color: {PAPER}; }}")
+            b.clicked.connect(act)
+            row.addWidget(b)
+            if text == "▢":
+                self.max = b
+
+    def toggle(self):
+        w = self.window_
+        w.showNormal() if w.isMaximized() else w.showMaximized()
+
+    def maximised(self, on):
+        self.max.setText("❐" if on else "▢")
+        self.max.setToolTip("Restore" if on else "Maximise")
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton:
+            self.window_.windowHandle().startSystemMove()
+
+    def mouseDoubleClickEvent(self, e):
+        self.toggle()
+
+
+EDGE = 6  # px at the window's edge that resize it
+
+
 class Window(QMainWindow):
     goal_applied = Signal()
 
@@ -277,9 +328,23 @@ class Window(QMainWindow):
         self.setWindowTitle("Hull")
         self.setWindowIcon(QIcon(str(ASSETS / "hull-icon.svg")))
         self.resize(1180, 760)
+        # no system frame: Hull draws its own bar and a 2px ink border, and resizes from its edges
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
+        self.setMouseTracking(True)
+        frame = QWidget()
+        frame.setObjectName("frame")
+        frame.setMouseTracking(True)
+        frame.setStyleSheet(f"QWidget#frame {{ border: 2px solid {INK}; background: {PAPER}; }}")
+        outer = QVBoxLayout(frame)
+        outer.setContentsMargins(2, 2, 2, 2)
+        outer.setSpacing(0)
+        self.bar = TitleBar(self)
+        outer.addWidget(self.bar)
+        self.setCentralWidget(frame)
         page = QWidget()
         page.setObjectName("page")
-        self.setCentralWidget(page)
+        page.setMouseTracking(True)
+        outer.addWidget(page, 1)
         self.columns = QHBoxLayout(page)
         self.columns.setContentsMargins(16, 16, 16, 16)
         self.columns.setSpacing(16)
@@ -410,6 +475,34 @@ class Window(QMainWindow):
             "<br><br><b>NEIGHBOURS</b><br>" + (" · ".join(f'<a href="{e(u)}" style="color:{INK}">{e(u)}</a> {share:.0%}' for u, share in neighbours) or "none yet") +
             "<br><br><b>VIDEOS</b><br>" + "<br>".join(f"{'▣' if s else ('▢' if h is None else '▨')} {e(t[:44])}" for t, s, h in videos) +
             "<br><span style='font-size:10px'>▣ SHOWN · ▨ HIDDEN · ▢ NOT ON SCREEN</span>")
+
+    def edges(self, pos):
+        """which window edges a point is on, for resizing"""
+        if self.isMaximized():
+            return Qt.Edge(0)
+        r, e = self.rect(), Qt.Edge(0)
+        if pos.x() <= EDGE: e |= Qt.Edge.LeftEdge
+        if pos.x() >= r.width() - EDGE: e |= Qt.Edge.RightEdge
+        if pos.y() <= EDGE: e |= Qt.Edge.TopEdge
+        if pos.y() >= r.height() - EDGE: e |= Qt.Edge.BottomEdge
+        return e
+
+    def mouseMoveEvent(self, e):
+        edges = self.edges(e.position().toPoint())
+        L, R, T, B = Qt.Edge.LeftEdge, Qt.Edge.RightEdge, Qt.Edge.TopEdge, Qt.Edge.BottomEdge
+        shape = (Qt.CursorShape.SizeFDiagCursor if edges in (L | T, R | B) else Qt.CursorShape.SizeBDiagCursor if edges in (R | T, L | B)
+                 else Qt.CursorShape.SizeHorCursor if edges & (L | R) else Qt.CursorShape.SizeVerCursor if edges & (T | B) else None)
+        self.setCursor(shape) if shape else self.unsetCursor()
+
+    def mousePressEvent(self, e):
+        edges = self.edges(e.position().toPoint())
+        if e.button() == Qt.MouseButton.LeftButton and edges:
+            self.windowHandle().startSystemResize(edges)
+
+    def changeEvent(self, e):
+        if e.type() == e.Type.WindowStateChange:
+            self.bar.maximised(self.isMaximized())
+        super().changeEvent(e)
 
     def closeEvent(self, e):  # keep steering from the tray
         e.ignore()
