@@ -3,14 +3,14 @@ your culture map. Hull itself (hull/link.py) runs on a thread of its own; the wi
 Closing the window keeps Hull going in the system tray; Quit there takes Hull's stages out of Rudder and stops.
 
 Styled like Rudder's popup: paper, ink, square 2px borders, monospace, uppercase headings, Rudder blue."""
-import asyncio, logging, sys, threading
+import asyncio, html, logging, sys, threading, time
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtSvgWidgets import QSvgWidget
 from PySide6.QtWidgets import (QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow, QMenu, QPushButton,
-                               QSystemTrayIcon, QVBoxLayout, QWidget)
+                               QSlider, QSystemTrayIcon, QVBoxLayout, QWidget)
 
 from hull.link import Hull
 from hull.mapview import CultureMap
@@ -181,6 +181,13 @@ class Window(QMainWindow):
         side.addWidget(self.filtering)
         self.numbers = Numbers(["recorded", "shown", "hull hid"])
         side.addWidget(self.numbers)
+        side.addWidget(label("TOPIC", "h2"))
+        self.details = label("Click a topic on your culture map.")
+        self.details.setTextFormat(Qt.TextFormat.RichText)
+        self.details.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.details.setStyleSheet(f"border: 2px solid {INK}; padding: 8px;")
+        self.details.linkActivated.connect(self.pick)
+        side.addWidget(self.details)
         self.side = side
         side.addStretch(1)
         holder = QWidget()
@@ -200,7 +207,19 @@ class Window(QMainWindow):
         main.addLayout(head)
         self.culture = next((st for st in hull.stages.values() if hasattr(st, "graph")), None)
         self.map = CultureMap()
+        self.map.picked.connect(self.pick)
         main.addWidget(self.map, 1)
+        when = QHBoxLayout()
+        when.addWidget(label("GROWTH", "lbl"))
+        self.slider = QSlider(Qt.Orientation.Horizontal)
+        self.slider.setRange(0, 1000)
+        self.slider.setValue(1000)
+        self.slider.valueChanged.connect(self.redraw)
+        when.addWidget(self.slider, 1)
+        self.when = label("NOW", "lbl")
+        self.when.setMinimumWidth(190)
+        when.addWidget(self.when)
+        main.addLayout(when)
         self.columns.addLayout(main, 1)
         self.map_timer = QTimer(self, interval=10000, timeout=self.redraw)
         self.map_timer.start()
@@ -229,9 +248,43 @@ class Window(QMainWindow):
         self.numbers.set("shown", s["shown"])
         self.numbers.set("hull hid", sum(s["hid_by_stage"].values()))
 
+    def since(self):
+        """the slider's time (Unix seconds), or None at the right end: now, growing live"""
+        first = self.hull.store.db.execute("select min(first_recorded) from videos").fetchone()[0]
+        if self.slider.value() >= 1000 or not first:
+            return None
+        return first + (time.time() - first) * self.slider.value() / 1000
+
     def redraw(self):
-        if self.culture:
-            self.map.draw(self.culture)
+        if not self.culture:
+            return
+        t = self.since()
+        n = self.hull.store.db.execute("select count(*) from videos where ? is null or first_recorded <= ?", (t, t)).fetchone()[0]
+        self.when.setText(("NOW" if t is None else time.strftime("%d %b %H:%M", time.localtime(t)).upper()) + f" · {n} VIDEOS")
+        self.map.draw(self.culture, t)
+
+    def pick(self, name):
+        """a topic's details: how often, what the goal does with it, its neighbours, its videos"""
+        if not self.culture or name not in self.culture.graph.index:
+            return
+        self.map.selected = name
+        self.redraw()
+        db, e = self.hull.store.db, html.escape
+        mark = self.culture.marks([name]).get(name)
+        why = next((w for (t, _), (_, w) in self.culture.verdicts.items() if t == name), None)
+        goal = {"focus": f'<span style="background:{BLUE}">&nbsp;NEAR YOUR FOCUS&nbsp;</span>', "block": f'<span style="background:{RED}">&nbsp;NEAR WHAT YOU BLOCK&nbsp;</span>',
+                "ask": "GEMMA HASN'T DECIDED YET"}.get(mark, "outside your goal" if (self.culture.focus or self.culture.block) else "no goal set")
+        neighbours = self.culture.graph.neighbours(name)[:8]
+        videos = db.execute("""select v.title, exists(select 1 from shown s where s.video_id = v.id),
+                                      (select o.hidden from outcomes o where o.video_id = v.id order by o.at desc limit 1)
+                               from video_topics vt join topics t on t.id = vt.topic_id join videos v on v.id = vt.video_id
+                               where t.name = ? order by v.first_recorded desc limit 8""", (name,)).fetchall()
+        count = db.execute("select count(*) from video_topics vt join topics t on t.id = vt.topic_id where t.name = ?", (name,)).fetchone()[0]
+        self.details.setText(
+            f'<b style="font-size:15px">{e(name)}</b><br>{count} videos · {goal}' + (f"<br><i>Gemma: {e(why)}</i>" if why else "") +
+            "<br><br><b>NEIGHBOURS</b><br>" + (" · ".join(f'<a href="{e(u)}" style="color:{INK}">{e(u)}</a> {share:.0%}' for u, share in neighbours) or "none yet") +
+            "<br><br><b>VIDEOS</b><br>" + "<br>".join(f"{'▣' if s else ('▢' if h is None else '▨')} {e(t[:44])}" for t, s, h in videos) +
+            "<br><span style='font-size:10px'>▣ SHOWN · ▨ HIDDEN · ▢ NOT ON SCREEN</span>")
 
     def closeEvent(self, e):  # keep steering from the tray
         e.ignore()
