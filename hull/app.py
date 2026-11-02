@@ -406,7 +406,7 @@ class Window(QMainWindow):
         self.legend = label("● near your focus   ● near what you block   ◌ Gemma decides", "lbl")
         self.legend.setTextFormat(Qt.TextFormat.RichText)
         self.legend.setText(f'<span style="color:{BLUE}">●</span> NEAR YOUR FOCUS &nbsp; <span style="color:{RED}">●</span> NEAR WHAT YOU BLOCK &nbsp; ◌ GEMMA DECIDES'
-                            f' &nbsp; SHAPES: <span style="color:{BLUE}">■</span> SHOWN <span style="color:{RED}">■</span> HIDDEN')
+                            f' &nbsp; GROUND: <span style="color:{BLUE}">■</span> SHOWN <span style="color:{RED}">■</span> HIDDEN')
         head.addWidget(self.legend)
         main.addLayout(head)
         self.map = InternetCultureMap()

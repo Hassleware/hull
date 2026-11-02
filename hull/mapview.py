@@ -2,8 +2,9 @@
 videos you've seen on it; a line between topics that share videos. Where a topic sits comes from its meaning (its
 embedding, flattened to two dimensions) pulled together with its neighbours and its community (a force layout).
 Colour says what your goal does with it: blue near your focus, red near what you block, dashed where Gemma decides.
-Each theme's shape takes the colour of how it's decided, bluer the more of it is shown, redder the more is hidden: a
-new video that lands among those topics will most likely go the same way.
+Behind it all, a colour field: every topic glows blue if the goal shows it, red if it hides it, beige if neither, and
+each point of the map blends the glows around it by distance. Where a new video lands, the colour under it is the
+consensus of its neighbours: it will most likely go the same way.
 
 It reads at every zoom (apply_detail, on every zoom, pan and resize):
   - Communities (topics more linked to each other than to the rest) get a shaded shape around them. While a community
@@ -18,8 +19,8 @@ import math
 
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen, QPolygonF
-from PySide6.QtWidgets import (QGraphicsEllipseItem, QGraphicsItem, QGraphicsLineItem, QGraphicsPathItem, QGraphicsRectItem,
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QImage, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
+from PySide6.QtWidgets import (QGraphicsEllipseItem, QGraphicsItem, QGraphicsLineItem, QGraphicsPathItem, QGraphicsPixmapItem, QGraphicsRectItem,
                                QGraphicsScene, QGraphicsSimpleTextItem, QGraphicsView)
 
 PAPER, INK, FAINT, BLUE, RED = "#f2ede1", "#111111", "#d9d2c1", "#5BB8F0", "#E5484D"
@@ -27,6 +28,7 @@ SHADE = "#e6dfcd"  # inside a community's shape
 MOST = 300  # topics drawn: the most-seen ones
 OPEN_PX = 260  # a community opens (its topics' names come out) once it's this big on screen
 GAP = 4  # px kept between names
+GLOW = 0.04  # a topic's glow reaches about this share of the map's width
 
 
 def flatten(vecs):
@@ -168,12 +170,30 @@ def theme_share(marks, focused):
     return shown, hidden
 
 
-def tinted(shown, hidden):
-    """a theme's shade: blue as much as it's shown, red as much as it's hidden, kept pale so its dots read on top"""
-    mix = lambda a, b, t: QColor.fromRgbF(*(x + (y - x) * t for x, y in zip(a.getRgbF()[:3], b.getRgbF()[:3])))
-    c = mix(QColor(SHADE), QColor(BLUE), 0.75 * shown)
-    c = mix(c, QColor(RED), 0.75 * hidden / max(1 - 0.75 * shown, 1e-9) if hidden else 0)
-    return mix(c, QColor(PAPER), 0.35)
+def rgb(hexcolor):
+    return np.array([int(hexcolor[i:i + 2], 16) for i in (1, 3, 5)], float)
+
+
+def colour_field(xy, sides, weights, box, size, sigma):
+    """the map's colour, worked out at every point of a grid over box (x, y, w, h) at size (columns, rows): each topic
+    glows (gaussian, sigma wide, stronger the more videos it has), blue if the goal shows it (+1), red if it hides it
+    (-1), beige if neither (0). A point takes the blend of the glows around it: its colour is their colours mixed by
+    weight (violet where blue and red meet), its strength how much glow reaches it, fading to paper where there are no
+    topics. → (rows, columns, 4) RGBA bytes"""
+    cols, rows = size
+    gx = box[0] + (np.arange(cols) + 0.5) * box[2] / cols
+    gy = box[1] + (np.arange(rows) + 0.5) * box[3] / rows
+    paper, shade, blue, red = rgb(PAPER), rgb(SHADE), rgb(BLUE), rgb(RED)
+    density = np.zeros((rows, cols))
+    mixed = np.zeros((rows, cols, 3))
+    for (x, y), s, w in zip(xy, sides, weights):  # separable gaussian: an outer product per topic
+        g = w * np.outer(np.exp(-((gy - y) / sigma) ** 2 / 2), np.exp(-((gx - x) / sigma) ** 2 / 2))
+        density += g
+        mixed += g[..., None] * (blue if s > 0 else red if s < 0 else shade)
+    colour = mixed / np.maximum(density, 1e-9)[..., None]  # contested ground mixes: violet between blue and red
+    strength = 1 - np.exp(-density / 1.2)  # how much there is here
+    out = paper + (colour - paper) * (strength[..., None] * 0.8)
+    return np.dstack([np.clip(out, 0, 255).astype(np.uint8), np.full((rows, cols), 255, np.uint8)])
 
 
 def cosmetic(color, width, alpha=255):
@@ -242,6 +262,25 @@ class InternetCultureMap(QGraphicsView):
         # community shapes: the hull, filled, with a wide round outline in the same shade (padding that stays the
         # same on screen)
         focused = bool(internet_culture.focus) and ready
+        # the colour field behind everything: how the goal decides each part of the map, flowing between topics
+        side = {"focus": 1.0, "block": -1.0}
+        sides = [side.get(marks.get(n), -1.0 if focused and marks.get(n) is None else 0.0) for n in names]
+        span_xy = xy.max(0) - xy.min(0)
+        pad = 0.6 * float(span_xy.max())  # well past the topics, so the field never shows an edge
+        box = QRectF(*xy.min(0), *span_xy).adjusted(-pad, -pad, pad, pad)
+        cols = 520
+        rows = max(1, int(cols * box.height() / max(box.width(), 1)))
+        spread = GLOW * float(span_xy.max())  # how far a topic's glow reaches, relative to the map
+        pixels = colour_field(xy, sides, [math.sqrt(c / most) + 0.3 for c in counts], (box.x(), box.y(), box.width(), box.height()), (cols, rows), spread)
+        self._pixels = np.ascontiguousarray(pixels)  # kept alive: the image reads from it
+        image = QImage(self._pixels.data, cols, rows, cols * 4, QImage.Format.Format_RGBA8888)
+        field = QGraphicsPixmapItem(QPixmap.fromImage(image))
+        field.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
+        field.setPos(box.topLeft())
+        field.setScale(box.width() / cols)
+        field.setZValue(-5)
+        scene.addItem(field)
+        # each theme: an invisible shape, for its numbers on hover
         for c in big:
             pts = hull_of(xy[members[c]])
             path = QPainterPath()
@@ -249,9 +288,8 @@ class InternetCultureMap(QGraphicsView):
             path.closeSubpath()
             shape = QGraphicsPathItem(path)
             shown, hidden = theme_share([marks.get(names[i]) for i in members[c]], focused)
-            tint = tinted(shown, hidden)
-            shape.setBrush(QBrush(tint))
-            shape.setPen(cosmetic(tint, 34))
+            shape.setBrush(QBrush(QColor(0, 0, 0, 1)))  # all but invisible, still under the pointer
+            shape.setPen(QPen(Qt.PenStyle.NoPen))
             n, top = len(members[c]), names[max(members[c], key=lambda i: counts[i])]
             likely = ("shown" if shown > hidden else "hidden") if max(shown, hidden) >= 0.5 else "decided by its own topics"
             shape.setToolTip(f"{top}: {round(shown * n)} of {n} topics shown, {round(hidden * n)} hidden.\n"

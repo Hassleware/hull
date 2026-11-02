@@ -468,6 +468,18 @@ class TestMapLayout(unittest.TestCase):
         self.assertEqual(theme_share(["focus", "focus", None, "block"], focused=False), (0.5, 0.25))
         self.assertEqual(theme_share(["focus", None, None, "ask"], focused=True), (0.25, 0.5))  # outside a focus: hidden
 
+    def test_colour_field_blends_by_distance(self):
+        from hull.mapview import colour_field, rgb, BLUE, RED, PAPER
+        xy = np.array([[0.0, 0.0], [100.0, 0.0]])
+        px = colour_field(xy, [1.0, -1.0], [1.0, 1.0], (-200, -50, 500, 100), (50, 10), 20).astype(float)[..., :3]
+        at = lambda x: px[5, int((x + 200) / 10)]
+        near = lambda c, x: np.linalg.norm(at(x) - rgb(c))
+        self.assertLess(near(BLUE, 0), near(RED, 0))  # blue by the shown topic
+        self.assertLess(near(RED, 100), near(BLUE, 100))  # red by the hidden one
+        self.assertLess(near(PAPER, 290), 3)  # paper far from both
+        mid = at(50)
+        self.assertTrue(near(PAPER, 50) > 3 and abs(mid[0] - mid[2]) < abs(at(0)[0] - at(0)[2]))  # in between: a blend
+
     def test_communities_split_where_links_thin(self):
         from hull.mapview import communities
         # two tight groups of four, joined by one thin link
