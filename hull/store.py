@@ -24,7 +24,8 @@ class Store:
     def __init__(self, folder):
         self.folder = Path(folder)
         (self.folder / "thumbs").mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(self.folder / "hull.db")
+        # stages use it from worker threads; Python's sqlite3 serializes calls on one connection
+        self.db = sqlite3.connect(self.folder / "hull.db", check_same_thread=False)
         self.db.executescript(SCHEMA)
 
     def _keep(self, v, now):

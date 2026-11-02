@@ -1,6 +1,6 @@
 """Hull's checks, no Firefox needed. Run: python -m unittest
 A fake Rudder (an in-process gRPC server speaking Rudder's real contract) stands in for Rudder's bridge."""
-import asyncio, tempfile, unittest
+import asyncio, io, tempfile, unittest
 
 import grpc
 from google.protobuf.json_format import MessageToDict
@@ -48,6 +48,37 @@ class TestRepeats(unittest.TestCase):
             self.assertEqual([x.decision for x in r.decide([Video("old"), Video("new")])], ["hide", "pass"])
             r.shown(["new"])
             self.assertEqual(Repeats({}, store).decide([Video("new")])[0].why, "shown before")  # kept on disk
+            store.db.close()
+
+
+class TestNearDuplicates(unittest.TestCase):
+    def jpg(self, shade, text, box=(40, 100, 300, 260)):
+        from PIL import Image, ImageDraw
+        img = Image.new("RGB", (480, 360), shade)
+        ImageDraw.Draw(img).rectangle(box, fill="white")
+        ImageDraw.Draw(img).text((60, 150), text, fill="black")
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=90)
+        return buf.getvalue()
+
+    def test_copies_are_repeats_episodes_are_not(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(tmp)
+            r = Repeats({}, store)
+            orig = Video("a", title="I spent 100 days in Los Santos", thumbnail=self.jpg((200, 40, 40), "100 DAYS"))
+            self.assertEqual(r.decide([orig])[0].decision, "pass")
+            r.shown(["a"])
+            small = io.BytesIO()
+            from PIL import Image
+            Image.open(io.BytesIO(orig.thumbnail)).resize((320, 240)).save(small, "JPEG", quality=60)  # same image, smaller
+            rs = r.decide([Video("b", title="I SPENT 100 DAYS IN LOS SANTOS!!"), Video("c", title="totally different", thumbnail=small.getvalue()),
+                           Video("d", title="Minecraft hardcore ep 12"), Video("e", title="Bread", thumbnail=self.jpg((20, 90, 200), "BREAD", (200, 20, 460, 200)))])
+            self.assertEqual([x.decision for x in rs], ["hide", "hide", "pass", "pass"])
+            self.assertIn("same title", rs[0].why)
+            self.assertIn("same thumbnail", rs[1].why)
+            r.shown(["d"])
+            self.assertEqual(r.decide([Video("f", title="Minecraft hardcore ep 13")])[0].decision, "pass")
+            self.assertEqual(Repeats({}, store).decide([Video("g", title="i spent 100 days in los santos")])[0].decision, "hide")  # from disk
             store.db.close()
 
 
