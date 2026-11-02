@@ -132,6 +132,7 @@ class TestCulture(unittest.TestCase):
             c.decide([Video("a", title="GTA 6 trailer")])
             self.assertEqual(c.ollama.calls, n)  # tagged once
             self.assertEqual(dict(c.graph.stats()["top"])["video games"], 2)
+            self.assertEqual(c.panel()[0][0], "Culture: 5 topics from 3 videos. Most seen:")
             store.db.close()
 
     def test_slow_tagging_hides_then_catches_up(self):

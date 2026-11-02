@@ -5,6 +5,7 @@
     describe() -> str                              # a few words for Rudder's popup
     shown(ids: list[str])                          # optional: videos Rudder just put on screen (worker thread)
     warm()                                         # optional: load models before Hull joins Rudder (worker thread)
+    panel() -> [(title, [(label, value)])]          # optional: bar lists for Hull's panel in Rudder's popup
 
 To add one: write it in this folder and add it to KINDS.
 """

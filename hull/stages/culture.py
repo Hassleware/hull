@@ -183,6 +183,12 @@ class Culture:
             results = [self.judge(t) if t else r for t, r in zip(topics, results)]
         return results
 
+    def panel(self):
+        """for Hull's panel in Rudder's popup: [(title, [(label, value)])]"""
+        s = self.graph.stats()
+        rules = "; ".join(filter(None, [self.focus and "focus: " + ", ".join(self.focus), self.block and "block: " + ", ".join(self.block)]))
+        return [(f"Culture: {s['topics']} topics from {s['tagged']} videos{f' ({rules})' if rules else ''}. Most seen:", s["top"])]
+
     def describe(self):
         s = self.graph.stats()
         return f"{s['tagged']} videos on {s['topics']} topics"

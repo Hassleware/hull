@@ -163,11 +163,13 @@ class Hull:
             await rudder.SetPanel(pb.Panel(id=APP, title="Hull", blocks=[
                 pb.Block(stats=pb.StatGrid(stats=[
                     pb.Stat(label="recorded", value=str(s["videos"])),
-                    pb.Stat(label="thumbnails", value=str(s["thumbnails"])),
+                    pb.Stat(label="shown", value=str(s["shown"])),
                     pb.Stat(label="hull hid", value=str(sum(s["hid_by_stage"].values()))),
                 ])),
                 pb.Block(bars=pb.BarList(bars=[pb.Bar(label=f"{sid} · {st.describe()} · {s['ms_by_stage'].get(sid, 0):.1f} ms", value=s["hid_by_stage"].get(sid, 0))
                                                for sid, st in self.stages.items()])),
+                *[b for st in self.stages.values() if hasattr(st, "panel") for title, bars in st.panel()
+                  for b in (pb.Block(text=title), pb.Block(bars=pb.BarList(bars=[pb.Bar(label=l, value=v) for l, v in bars])))],
                 *([pb.Block(table=pb.Table(columns=["hidden by hull", "why"], rows=[pb.Row(cells=[title, f"{stage}: {why}"]) for title, stage, why in s["recent"]]))]
                   if s["recent"] else []),
             ]))
