@@ -54,9 +54,20 @@ class Hull:
 
     async def main(self):
         try:
+            await self.warm()
             await self.run()
         finally:
             await self.leave()
+
+    async def warm(self):
+        """load stages' models before joining, so Rudder's first batches don't time out"""
+        for sid, st in self.stages.items():
+            if hasattr(st, "warm"):
+                log.info("warming up %s", sid)
+                try:
+                    await asyncio.to_thread(st.warm)
+                except Exception as e:  # it hides what it can't answer (strict), so Hull still runs
+                    log.warning("couldn't warm up %s: %s", sid, e)
 
     async def run(self):
         """connect, and keep reconnecting"""

@@ -1,14 +1,17 @@
 """Hull's checks, no Firefox needed. Run: python -m unittest
 A fake Rudder (an in-process gRPC server speaking Rudder's real contract) stands in for Rudder's bridge."""
-import asyncio, io, tempfile, unittest
+import asyncio, io, tempfile, time, unittest, zlib
 
 import grpc
+import numpy as np
 from google.protobuf.json_format import MessageToDict
 
 from hull.config import load
 from hull.link import Hull
 from hull.rudder import rudder_pb2 as pb, rudder_pb2_grpc as rpc
 from hull.bloom import Bloom
+from hull.graph import PREFIX
+from hull.stages.culture import Culture
 from hull.stages.repeats import Repeats
 from hull.stages.rules import Rules
 from hull.store import Store
@@ -79,6 +82,61 @@ class TestNearDuplicates(unittest.TestCase):
             r.shown(["d"])
             self.assertEqual(r.decide([Video("f", title="Minecraft hardcore ep 13")])[0].decision, "pass")
             self.assertEqual(Repeats({}, store).decide([Video("g", title="i spent 100 days in los santos")])[0].decision, "hide")  # from disk
+            store.db.close()
+
+
+class FakeOllama:
+    """Gemma and embeddinggemma in miniature: topics from a table, embeddings from hashed words"""
+    TOPICS = {"GTA 6 trailer": ["gta vi", "rockstar games", "video games"], "Bayes in 10 minutes": ["bayes theorem", "statistics"],
+              "Rockstar's next game": ["grand theft auto vi", "video games"]}
+    SAME = {"grand theft auto vi": "gta vi"}  # names embeddinggemma would put together
+
+    def __init__(self, delay=0):
+        self.delay, self.calls = delay, 0
+
+    def json(self, model, prompt, schema, images=(), system=""):
+        time.sleep(self.delay)
+        self.calls += 1
+        return {"topics": next(t for title, t in self.TOPICS.items() if f"Title: {title}" in prompt)}
+
+    def embed(self, model, texts):
+        out = np.zeros((len(texts), 64), np.float32)
+        for i, t in enumerate(texts):
+            t = t.removeprefix(PREFIX)
+            for w in self.SAME.get(t, t).split():
+                out[i, zlib.crc32(w.encode()) % 64] += 1
+        return out / np.maximum(np.linalg.norm(out, axis=1, keepdims=True), 1e-9)
+
+
+def culture(store, ollama):
+    c = Culture({"budget": 2}, store)
+    c.ollama = c.graph.ollama = ollama
+    c.graph.vecs = c.graph.vecs[:, :64]
+    return c
+
+
+class TestCulture(unittest.TestCase):
+    def test_tags_into_the_graph_merging_names(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(tmp)
+            c = culture(store, FakeOllama())
+            rs = c.decide([Video("a", title="GTA 6 trailer"), Video("b", title="Bayes in 10 minutes")])
+            self.assertEqual([r.fields["topics"] for r in rs], ["gta vi; rockstar games; video games", "bayes theorem; statistics"])
+            r = c.decide([Video("c", title="Rockstar's next game")])[0]
+            self.assertEqual(r.fields["topics"], "gta vi; video games")  # "grand theft auto vi" is "gta vi"
+            n = c.ollama.calls
+            c.decide([Video("a", title="GTA 6 trailer")])
+            self.assertEqual(c.ollama.calls, n)  # tagged once
+            self.assertEqual(dict(c.graph.stats()["top"])["video games"], 2)
+            store.db.close()
+
+    def test_slow_tagging_hides_then_catches_up(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(tmp)
+            c = culture(store, FakeOllama(delay=3))
+            self.assertEqual(c.decide([Video("a", title="GTA 6 trailer")])[0].why, "not tagged yet")
+            c.pool.shutdown(wait=True)
+            self.assertEqual(c.graph.topics_of("a"), ["gta vi", "rockstar games", "video games"])
             store.db.close()
 
 

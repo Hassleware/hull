@@ -23,3 +23,11 @@ kind = "rules"
 rules = [
   { pattern = "los santos|\\bgta ?(v|5|6|online)?\\b|grand theft auto", action = "hide", why = "GTA" },
 ]
+
+# Gemma (in Ollama) names each video's topics into your culture graph. Needs Ollama with gemma4:e4b and embeddinggemma.
+[[stage]]
+id = "culture"
+kind = "culture"
+[stage.config]
+model = "gemma4:e4b"
+embed_model = "embeddinggemma"

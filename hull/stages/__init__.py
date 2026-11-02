@@ -4,10 +4,12 @@
     decide(videos: list[Video]) -> list[Result]   # one Result per video, in order; runs in a worker thread
     describe() -> str                              # a few words for Rudder's popup
     shown(ids: list[str])                          # optional: videos Rudder just put on screen (worker thread)
+    warm()                                         # optional: load models before Hull joins Rudder (worker thread)
 
 To add one: write it in this folder and add it to KINDS.
 """
+from .culture import Culture
 from .repeats import Repeats
 from .rules import Rules
 
-KINDS = {"repeats": Repeats, "rules": Rules}
+KINDS = {"culture": Culture, "repeats": Repeats, "rules": Rules}
