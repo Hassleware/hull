@@ -54,7 +54,7 @@ Hull checks every video Rudder filters (the home page, the sidebar beside a vide
 - **Your internet culture map.**
   - Every topic is a pin, sized by how many videos you've seen on it, and topics that share videos are joined by lines.
   - Pins sit by meaning and by neighbours, so your internet culture forms clusters.
-  - Themes (communities found with Louvain: music, gaming, cooking…) get a shaded shape. Zoomed out, each theme shows one name, its most-seen topic and how many topics it holds, and the lines between two themes become one thick line. Zoom in and a theme opens: its topics' names and every line come back.
+  - Themes (communities found with Louvain: music, gaming, cooking…) get a shaded shape, bluer the more of it your goal shows and redder the more it hides: a new video that lands there will most likely go the same way. Hover a shape for its numbers. Zoomed out, each theme shows one name, its most-seen topic and how many topics it holds, and the lines between two themes become one thick line. Zoom in and a theme opens: its topics' names and every line come back.
   - A name is drawn only where it has room: the most-seen go first, and a name that would touch another waits until you zoom in. Every dot is always drawn, and hovering one shows its name.
   - Blue is near your focus, red near what you block, and dashed where Gemma still decides.
   - Wheel to zoom, drag to move, click a pin for its videos and neighbours.
@@ -117,7 +117,12 @@ It names 3 to 6 topics, from the subject up to the field. For example, "I spent 
 
 A topic that mostly lives around your goal joins it: around "video games", Roblox, Frostpunk and League of Legends join. A big separate subject that touched it once stays out: music only shares a game soundtrack, 1 of its 25 videos. A video with a topic in the block area is hidden. With a focus, a video with a topic in the focus area is shown.
 
-The goal box makes the area wide from the start: Gemma sees your whole map and lists the subject the way someone who knows it would, with the field, its parts and the topics on your map that belong. A gamer's goal becomes video games, gaming culture, esports, walkthroughs, PC gaming and so on.
+*Draft with Gemma* drafts both sides of the goal and covers your whole map:
+1. Gemma lists what the goal is for (the field, its kinds, examples, people and communities) and what it's against (what you don't want and what pulls you away from it).
+2. Then every topic on your map gets a label, for, against or neither, in batches side by side (about a minute for a few hundred topics).
+3. Your map's consensus checks Gemma: a topic labelled "for" stays only if it's clearly alike in meaning or sits in the area around clearly-wanted topics, and a topic labelled "against" that sits in that area is dropped unless you named it.
+
+A video is then decided by its topics: the goal's own topics are fixed, then the areas around them; with both sides, the video's topics vote, the most specific counting most (a GTA trailer is a game video even if trailers are against the goal); with only things to avoid, any one of them hides it.
 
 Topics outside every area (new ones without links yet) are judged by meaning. How near a video is to a topic is the best of its topics' relatedness to it. Relatedness is the larger of:
 - how alike the two topics' meanings are;

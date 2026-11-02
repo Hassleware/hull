@@ -179,9 +179,9 @@ class TestGemmaJudges(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = Store(tmp)
             c = internet_culture(store, FakeOllama())
-            c.block, c.block_at, c.block_ask, c.seed = ["video games"], 1.01, 0.5, 1.01  # no area: everything near is "in between"
+            c.block, c.block_at, c.block_ask, c.seed = ["games"], 1.01, 0.5, 1.01  # no area: "video games" is in between
             r = c.decide([Video("m", title="Minecraft redstone")])[0]
-            self.assertEqual((r.decision, r.why), ("hide", "video games is near video games: it's a game"))
+            self.assertEqual((r.decision, r.why), ("hide", "video games is near games: it's a game"))
             n = c.ollama.calls
             c.decide([Video("m", title="Minecraft redstone")])
             self.assertEqual(c.ollama.calls, n)  # asked once
@@ -396,6 +396,22 @@ class TestAreas(unittest.TestCase):
             store.db.close()
 
 
+class TestSides(unittest.TestCase):
+    def test_both_sides_vote_most_specific_first(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(tmp)
+            c = internet_culture(store, FakeOllama())
+            for vid, topics in {"1": ["gta vi", "trailer", "video games"], "2": ["trailer", "movies"], "3": ["drama", "trailer"]}.items():
+                c.graph.attest(vid, topics)
+            c.focus, c.block = ["gta vi", "video games"], ["trailer", "drama"]
+            self.assertEqual(c.judge(["gta vi", "trailer", "video games"]).decision, "pass")  # a game trailer
+            self.assertEqual(c.judge(["trailer", "movies"]).decision, "hide")
+            self.assertEqual(c.side("video games"), "focus")  # the goal's own topics stay put, whatever's around them
+            c.focus = []
+            self.assertEqual(c.judge(["gta vi", "trailer", "video games"]).decision, "hide")  # only things to avoid: any hides
+            store.db.close()
+
+
 class TestGoal(unittest.TestCase):
     def test_gemma_drafts_both_sides_and_sorts_the_map(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -447,6 +463,11 @@ class TestCaptions(unittest.TestCase):
 
 
 class TestMapLayout(unittest.TestCase):
+    def test_theme_shares(self):
+        from hull.mapview import theme_share
+        self.assertEqual(theme_share(["focus", "focus", None, "block"], focused=False), (0.5, 0.25))
+        self.assertEqual(theme_share(["focus", None, None, "ask"], focused=True), (0.25, 0.5))  # outside a focus: hidden
+
     def test_communities_split_where_links_thin(self):
         from hull.mapview import communities
         # two tight groups of four, joined by one thin link

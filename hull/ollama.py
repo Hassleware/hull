@@ -24,7 +24,11 @@ class Ollama:
 
     def embed(self, model, texts):
         """unit-length vectors (float32), one row per text"""
+        texts = list(texts)
         if not texts:
             return np.zeros((0, 0), np.float32)
-        v = np.array(self._post("/api/embed", {"model": model, "input": list(texts), "keep_alive": "30m"})["embeddings"], np.float32)
+        rows = []
+        for i in range(0, len(texts), 64):  # Ollama turns down a few hundred at once (400 Bad Request)
+            rows += self._post("/api/embed", {"model": model, "input": texts[i:i + 64], "keep_alive": "30m"})["embeddings"]
+        v = np.array(rows, np.float32)
         return v / np.maximum(np.linalg.norm(v, axis=1, keepdims=True), 1e-9)

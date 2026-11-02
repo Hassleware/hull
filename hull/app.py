@@ -405,7 +405,8 @@ class Window(QMainWindow):
         head.addStretch(1)
         self.legend = label("● near your focus   ● near what you block   ◌ Gemma decides", "lbl")
         self.legend.setTextFormat(Qt.TextFormat.RichText)
-        self.legend.setText(f'<span style="color:{BLUE}">●</span> NEAR YOUR FOCUS &nbsp; <span style="color:{RED}">●</span> NEAR WHAT YOU BLOCK &nbsp; ◌ GEMMA DECIDES')
+        self.legend.setText(f'<span style="color:{BLUE}">●</span> NEAR YOUR FOCUS &nbsp; <span style="color:{RED}">●</span> NEAR WHAT YOU BLOCK &nbsp; ◌ GEMMA DECIDES'
+                            f' &nbsp; SHAPES: <span style="color:{BLUE}">■</span> SHOWN <span style="color:{RED}">■</span> HIDDEN')
         head.addWidget(self.legend)
         main.addLayout(head)
         self.map = InternetCultureMap()
@@ -473,7 +474,7 @@ class Window(QMainWindow):
         self.map.selected = name
         self.redraw()
         db, e = self.hull.store.db, html.escape
-        mark = self.internet_culture.marks([name]).get(name)
+        mark = (self.internet_culture.marks([name]) or {}).get(name)
         why = next((w for (t, _), (_, w) in self.internet_culture.verdicts.items() if t == name), None)
         goal = {"focus": f'<span style="background:{BLUE}">&nbsp;NEAR YOUR FOCUS&nbsp;</span>', "block": f'<span style="background:{RED}">&nbsp;NEAR WHAT YOU BLOCK&nbsp;</span>',
                 "ask": "GEMMA HASN'T DECIDED YET"}.get(mark, "outside your goal" if (self.internet_culture.focus or self.internet_culture.block) else "no goal set")

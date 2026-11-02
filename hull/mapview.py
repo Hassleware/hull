@@ -2,6 +2,8 @@
 videos you've seen on it; a line between topics that share videos. Where a topic sits comes from its meaning (its
 embedding, flattened to two dimensions) pulled together with its neighbours and its community (a force layout).
 Colour says what your goal does with it: blue near your focus, red near what you block, dashed where Gemma decides.
+Each theme's shape takes the colour of how it's decided, bluer the more of it is shown, redder the more is hidden: a
+new video that lands among those topics will most likely go the same way.
 
 It reads at every zoom (apply_detail, on every zoom, pan and resize):
   - Communities (topics more linked to each other than to the rest) get a shaded shape around them. While a community
@@ -157,6 +159,23 @@ def read(graph, since=None):
     return names, [r[1] for r in rows], edges
 
 
+def theme_share(marks, focused):
+    """(share shown, share hidden) of a theme's topics under the goal: near the focus is shown; near a block, or outside
+    a focus, is hidden; topics Gemma hasn't decided count for neither"""
+    n = len(marks) or 1
+    shown = sum(m == "focus" for m in marks) / n
+    hidden = sum(m == "block" or (focused and m is None) for m in marks) / n
+    return shown, hidden
+
+
+def tinted(shown, hidden):
+    """a theme's shade: blue as much as it's shown, red as much as it's hidden, kept pale so its dots read on top"""
+    mix = lambda a, b, t: QColor.fromRgbF(*(x + (y - x) * t for x, y in zip(a.getRgbF()[:3], b.getRgbF()[:3])))
+    c = mix(QColor(SHADE), QColor(BLUE), 0.75 * shown)
+    c = mix(c, QColor(RED), 0.75 * hidden / max(1 - 0.75 * shown, 1e-9) if hidden else 0)
+    return mix(c, QColor(PAPER), 0.35)
+
+
 def cosmetic(color, width, alpha=255):
     c = QColor(color)
     c.setAlpha(alpha)
@@ -188,7 +207,9 @@ class InternetCultureMap(QGraphicsView):
         """(re)draw from the internet culture stage's graph; marks: topic → "focus" | "block" | "ask" | None"""
         names, counts, edges = read(internet_culture.graph, since)
         marks = internet_culture.marks(names)
-        key = (tuple(names), tuple(counts), len(edges), tuple(sorted(marks.items())), self.selected)
+        ready = marks is not None  # the goal's topics are embedded: colours are known
+        marks = marks or {}
+        key = (ready, tuple(names), tuple(counts), len(edges), tuple(sorted(marks.items())), self.selected)
         if key == self.key:
             return
         self.key = key
@@ -220,15 +241,22 @@ class InternetCultureMap(QGraphicsView):
 
         # community shapes: the hull, filled, with a wide round outline in the same shade (padding that stays the
         # same on screen)
+        focused = bool(internet_culture.focus) and ready
         for c in big:
             pts = hull_of(xy[members[c]])
             path = QPainterPath()
             path.addPolygon(QPolygonF([QPointF(*p) for p in pts]))
             path.closeSubpath()
             shape = QGraphicsPathItem(path)
-            shape.setBrush(QBrush(QColor(SHADE)))
-            shape.setPen(cosmetic(SHADE, 34))
-            shape.setZValue(-3)
+            shown, hidden = theme_share([marks.get(names[i]) for i in members[c]], focused)
+            tint = tinted(shown, hidden)
+            shape.setBrush(QBrush(tint))
+            shape.setPen(cosmetic(tint, 34))
+            n, top = len(members[c]), names[max(members[c], key=lambda i: counts[i])]
+            likely = ("shown" if shown > hidden else "hidden") if max(shown, hidden) >= 0.5 else "decided by its own topics"
+            shape.setToolTip(f"{top}: {round(shown * n)} of {n} topics shown, {round(hidden * n)} hidden.\n"
+                             f"A new video like these will most likely be {likely}.")
+            shape.setZValue(-3 - n / 1000)  # bigger themes further back, so a small theme on top of one stays seen
             scene.addItem(shape)
 
         # lines: each one, and one per pair of communities for when they're small on screen

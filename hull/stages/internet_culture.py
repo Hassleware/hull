@@ -203,6 +203,10 @@ class InternetCulture:
             sure = [t for t in on if sim[t] >= 0.75]
             area = self.graph.area(self.graph.vecs[[self.graph.index[t] for t in sure]], 0.99, 0.5, 2) if sure else set()
             pro = [t for t in pro if t not in self.graph.index or sim[t] >= 0.75 or t in area]
+            # and the map's consensus outvotes a stray "against" (minecon, labelled against a gamer's goal, lives among
+            # game videos), unless it's one of the goal's own named dislikes
+            named = set(clean(r["against"]))
+            con = [t for t in con if t in named or t not in area]
         both = set(pro) & set(con)  # Gemma said both: what the first draft said wins, else it's left out
         first = set(clean(r["for"])), set(clean(r["against"]))
         pro = [x for x in pro if x not in both or x in first[0]]
@@ -211,13 +215,14 @@ class InternetCulture:
 
     def marks(self, names):
         """what the goal does with each topic, for the internet culture map: "focus", "block", "ask" (Gemma hasn't decided yet) or
-        None. Only what's known: it never asks Gemma or embeds anything new."""
+        None; None for all of them while the goal's topics aren't embedded yet. Only what's known: it never asks Gemma or
+        embeds anything new."""
         if any(n not in self.anchor_vecs for n in self.focus + self.block):
-            return {}
-        out, block, focus = {}, self.area("block"), self.area("focus")
+            return None
+        out = {}
         for name in names:
-            if name in block or name in focus:
-                out[name] = "block" if name in block else "focus"
+            if self.side(name):
+                out[name] = self.side(name)
                 continue
             for anchors, at, ask, mark in ((self.block, self.block_at, self.block_ask, "block"), (self.focus, self.focus_at, self.focus_ask, "focus")):
                 if not anchors or name not in self.graph.index:
@@ -265,22 +270,41 @@ class InternetCulture:
         return None
 
     def area(self, kind):
-        """the topics in the goal's focus or block area of the map"""
-        anchors = self.focus if kind == "focus" else self.block
+        """the topics in the goal's focus or block area of the map; the other side's own topics never join it"""
+        anchors, other = (self.focus, self.block) if kind == "focus" else (self.block, self.focus)
         if not anchors:
             return set()
-        return self.graph.area(self.anchors(anchors)[1], self.seed, *self.reach[kind])
+        return self.graph.area(self.anchors(anchors)[1], self.seed, *self.reach[kind], keep_out=frozenset(other))
+
+    def side(self, topic):
+        """"focus", "block" or None for one topic: the goal's own topics first, then the areas around them"""
+        if topic in self.block:
+            return "block"
+        if topic in self.focus:
+            return "focus"
+        if topic in self.area("block"):
+            return "block"
+        if topic in self.area("focus"):
+            return "focus"
+        return None
 
     def judge(self, topics):
         fields = {"topics": "; ".join(topics)}
-        blocked = [t for t in topics if t in self.area("block")]
-        if blocked:
-            return Result("hide", f"{blocked[0]} is in what you block ({', '.join(self.block[:3])}{'…' if len(self.block) > 3 else ''})", fields)
+        sides = [self.side(t) for t in topics]
+        blocked = [t for t, s in zip(topics, sides) if s == "block"]
+        wanted = [t for t, s in zip(topics, sides) if s == "focus"]
+        why_blocked = lambda: f"{blocked[0]} is in what you block ({', '.join(self.block[:3])}{'…' if len(self.block) > 3 else ''})"
         if self.focus:
-            inside = [t for t in topics if t in self.area("focus")]
-            if inside:
-                fields["focus"] = f"in your focus area: {inside[0]}"
+            # both sides: the video's topics vote, the most specific (tagged first) counting most, so a GTA trailer
+            # (grand theft auto vi, trailer, video games) is a game video even if trailers are against the goal
+            score = sum((1 if s == "focus" else -1 if s == "block" else 0) / (1 + i) for i, s in enumerate(sides))
+            if score > 0:
+                fields["focus"] = f"in your focus area: {wanted[0]}"
                 return Result(fields=fields)
+            if score < 0:
+                return Result("hide", why_blocked(), fields)
+        elif blocked:  # only things to avoid: any one of them hides it
+            return Result("hide", why_blocked(), fields)
         if self.block:
             s, topic, anchor, via = self.graph.nearness(topics, *self.anchors(self.block))
             near = f"{topic} is near {anchor}" + (f" (through {via})" if via else "")

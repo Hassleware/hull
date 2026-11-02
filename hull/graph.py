@@ -99,28 +99,32 @@ class Graph:
                                   join topics t on t.id = b.topic_id where a.topic_id = ? group by b.topic_id order by 2 desc""", (self.ids[i],)).fetchall()
         return [(u, c / n) for u, c in rows]
 
-    def area(self, anchor_vecs, at=0.85, link=0.5, hops=1):
+    def area(self, anchor_vecs, at=0.85, link=0.5, hops=1, keep_out=frozenset()):
         """the part of the map around some topics: the topics themselves and their near-synonyms (cosine ≥ at: "비디오
         게임" for "video games"), then, up to
         `hops` edges out, every neighbour most of whose videos (share ≥ link) are already inside. A topic that mostly
         lives there joins (roblox, frostpunk around video games); a big separate subject that touched it once doesn't
-        (music, through a game's soundtrack), so the area can't leak across the map."""
+        (music, through a game's soundtrack), so the area can't leak across the map. Topics in keep_out never join (the
+        other side of the goal)."""
         if not len(self.names):
             return set()
-        key = (anchor_vecs.tobytes(), at, link, hops, self.db.execute("select count(*) from video_topics").fetchone()[0])
-        if getattr(self, "_area", (None,))[0] == key:
-            return self._area[1]
+        key = (anchor_vecs.tobytes(), at, link, hops, hash(keep_out), self.db.execute("select count(*) from video_topics").fetchone()[0])
+        cache = self.__dict__.setdefault("_areas", {})
+        if key in cache:
+            return cache[key]
         on = {}  # topic → its videos
         for v, t in self.db.execute("select vt.video_id, t.name from video_topics vt join topics t on t.id = vt.topic_id"):
             on.setdefault(t, set()).add(v)
-        inside = {self.names[i] for i in np.flatnonzero((self.vecs @ anchor_vecs.T).max(1) >= at)}
+        inside = {self.names[i] for i in np.flatnonzero((self.vecs @ anchor_vecs.T).max(1) >= at)} - keep_out
         for _ in range(hops):
             videos = set().union(*(on.get(t, ()) for t in inside))
-            near = {t for t, vs in on.items() if t not in inside and vs & videos and len(vs & videos) / len(vs) >= link}
+            near = {t for t, vs in on.items() if t not in inside and t not in keep_out and vs & videos and len(vs & videos) / len(vs) >= link}
             if not near:
                 break
             inside |= near
-        self._area = (key, inside)
+        if len(cache) > 8:
+            cache.clear()
+        cache[key] = inside
         return inside
 
     def nearness(self, names, anchors, anchor_vecs):
