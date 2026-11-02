@@ -1,0 +1,20 @@
+# Hull's settings. Every Hull stage becomes a stage in Rudder's pipeline.
+
+[rudder]
+address = "127.0.0.1:7833"  # Rudder's API (start Rudder's bridge: bridge/bridge.py in the Rudder repo)
+
+[pipeline]
+after = "keywords"     # Hull's stages go right after this Rudder stage (or at the end if it isn't there)
+when_missing = "hide"  # if Hull stops without cleaning up, Rudder hides what Hull would have checked ("pass" to let them through)
+
+[data]
+folder = "data"        # hull.db and thumbs/
+
+# Your own rules: regular expressions over title, channel, description and thumbnail text. First match decides.
+[[stage]]
+id = "rules"
+kind = "rules"
+[stage.config]
+rules = [
+  { pattern = "los santos|\\bgta ?(v|5|6|online)?\\b|grand theft auto", action = "hide", why = "GTA" },
+]

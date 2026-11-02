@@ -1,0 +1,266 @@
+// Rudder's local gRPC API, served by bridge.py on 127.0.0.1:7833. Generate a client in any language from this file.
+// (The Firefox extension can't serve gRPC itself: it connects to the bridge over a WebSocket on 127.0.0.1:7834.)
+syntax = "proto3";
+
+package rudder.v1;
+
+import "google/protobuf/struct.proto";
+
+service Rudder {
+  // ---- state ----
+  // Rudder's filters and statistics, as last reported by Firefox.
+  rpc GetState(Empty) returns (State);
+  // The state now, then again on every change.
+  rpc WatchState(Empty) returns (stream State);
+  // Replace the popup's filter list (what the "keywords" and "thumbnail-text" stages use unless configured otherwise).
+  rpc SetFilters(Filters) returns (State);
+
+  // ---- the filtering pipeline ----
+  // The stages in order, and the kinds a stage can be.
+  rpc GetPipeline(Empty) returns (Pipeline);
+  // Replace the whole pipeline: add, remove, reorder or configure stages, or swap in your own. No stages restores the
+  // default. A wrong pipeline (an unknown kind, a repeated id, an "app" stage without a name) is refused and nothing
+  // changes. Kept until changed again, across restarts.
+  rpc SetPipeline(Pipeline) returns (Pipeline);
+  // Run "app" stages. Send StageMessage{hello} with your app's name, then answer each StageRequest with
+  // StageMessage{reply} of the same id: one StageResult per video, in order. 25 s per request; no answer, a wrong
+  // count or closing the stream mid-request hides those videos (strict). One connection per name.
+  rpc Stage(stream StageMessage) returns (stream StageRequest);
+
+  // ---- video data ----
+  // Every video Rudder decides, with its record and outcome, as it happens.
+  rpc WatchVideos(Empty) returns (stream VideoEvent);
+  // The newest videos the bridge has seen (up to 500), newest first.
+  rpc GetVideos(VideosRequest) returns (VideoEvents);
+  // Run videos through the current pipeline without showing, counting or remembering them. For tests.
+  rpc Test(TestRequest) returns (TestResults);
+
+  // ---- panels in the popup ----
+  // Show a panel in Rudder's popup. The same id replaces it; a panel with no blocks removes it. Lasts until the bridge
+  // or Firefox restarts.
+  rpc SetPanel(Panel) returns (Empty);
+  // Clicks on panels' buttons.
+  rpc PanelEvents(Empty) returns (stream PanelEvent);
+
+  // ---- timing ----
+  // How long every stage takes, in ms.
+  rpc GetTimings(TimingsRequest) returns (Timings);
+}
+
+message Empty {}
+
+// ---- Rudder's data contract: every video, everywhere in the API ----
+
+message Video {
+  string id = 1;  // YouTube's video id
+  string title = 2;
+  string channel = 3;  // empty for most Shorts
+  string description = 4;  // empty until YouTube sends one: search results have a snippet, a played video the full text
+  string published = 5;  // as YouTube shows it ("3 days ago"), or a date ("2026-10-29") once the video is played; or empty
+  int32 duration_seconds = 6;  // 0 if unknown (Shorts, live streams)
+  int64 seen_at_ms = 7;  // when Rudder first saw it (Unix ms)
+  bytes thumbnail = 8;  // the image Firefox downloaded for the page; empty if none
+  string thumbnail_type = 9;  // "image/jpeg" or "image/webp"
+  string thumbnail_url = 10;
+  string source = 11;  // where it came from: browse (home, channels), next (watch page), search, reel_watch_sequence (Shorts), player, page, tile
+  bool short = 12;
+  map<string, string> fields = 13;  // added by earlier stages: thumbnail_text, dislike_chance, and your apps' fields
+}
+
+message Outcome {
+  bool hidden = 1;
+  string decided_by = 2;  // the stage that hid or showed it; empty if every stage passed
+  string why = 3;
+}
+
+message VideoEvent {
+  Video video = 1;
+  Outcome outcome = 2;
+}
+
+message VideosRequest {
+  int32 limit = 1;  // 0 = all the bridge has (up to 500)
+  bool thumbnails = 2;  // include the image bytes
+}
+
+message VideoEvents {
+  repeated VideoEvent events = 1;
+}
+
+// ---- the pipeline ----
+
+message Stage {
+  string id = 1;  // unique; defaults to the kind
+  string kind = 2;  // your-clicks, keywords, learned, thumbnail-text, app
+  // keywords, thumbnail-text: { "filters": [...] } (default: the popup's); thumbnail-text: { "min_letters": 4 }
+  // learned: { "can_show": true } lets it show videos like ones you liked (a show skips every stage after it)
+  // app: { "name": "my-app", "when_missing": "hide" | "pass", ...anything your app reads from StageRequest.config }
+  google.protobuf.Struct config = 3;
+}
+
+message Pipeline {
+  repeated Stage stages = 1;
+  repeated string kinds = 2;  // in GetPipeline / SetPipeline answers: the kinds a stage can be
+}
+
+enum Decision {
+  PASS = 0;  // no opinion: on to the next stage
+  HIDE = 1;  // hidden; later stages don't run
+  SHOW = 2;  // shown; later stages don't run
+}
+
+message StageResult {
+  Decision decision = 1;
+  string why = 2;  // shown in the popup's recently hidden list
+  map<string, string> fields = 3;  // added to the video's record for the stages after yours
+}
+
+message StageRequest {
+  int64 id = 1;
+  google.protobuf.Struct config = 2;  // the stage's config (one app can serve several stages with different configs)
+  repeated Video videos = 3;
+}
+
+message StageHello {
+  string name = 1;  // matches config.name of your "app" stages
+}
+
+message StageReply {
+  int64 id = 1;
+  repeated StageResult results = 2;
+}
+
+message StageMessage {
+  oneof msg {
+    StageHello hello = 1;
+    StageReply reply = 2;
+  }
+}
+
+// ---- state ----
+
+message Filters {
+  repeated string filters = 1;
+}
+
+message Stats {
+  int32 checked = 1;
+  int32 hidden = 2;
+  map<string, int32> hidden_by_filter = 3;
+  map<string, int32> hidden_by_stage = 7;
+  int32 likes = 4;
+  int32 dislikes = 5;
+  bool learning = 6;  // the like/dislike model is trained
+}
+
+message Hidden {
+  string id = 1;
+  string title = 2;
+  string channel = 3;
+  string why = 4;
+  string stage = 5;
+}
+
+message State {
+  bool connected = 1;  // Firefox is connected to the bridge
+  bool enabled = 2;
+  repeated string filters = 3;
+  repeated string stages = 4;  // the pipeline's stage ids, in order
+  repeated string apps = 7;  // names of the connected stage apps
+  Stats stats = 5;
+  repeated Hidden recent = 6;  // the newest hidden videos
+}
+
+// ---- tests ----
+
+message TestRequest {
+  repeated Video videos = 1;  // only title is needed; a real id also applies your own likes and dislikes of it
+}
+
+message StageTrace {
+  string stage = 1;
+  string decision = 2;  // pass, hide, show
+  string why = 3;
+}
+
+message TestResult {
+  string id = 1;
+  Outcome outcome = 2;
+  map<string, string> fields = 3;  // every field the stages added
+  repeated StageTrace trace = 4;  // what each stage said, in order, up to the one that decided
+}
+
+message TestResults {
+  repeated TestResult results = 1;
+  double ms = 2;  // the whole check, including the round trip to Firefox
+}
+
+// ---- panels: Rudder's mini UI framework (extension/panel.js renders each block kind) ----
+
+message Panel {
+  string id = 1;
+  string title = 2;
+  repeated Block blocks = 3;
+}
+
+message Block {
+  oneof kind {
+    string text = 1;  // a line of text
+    StatGrid stats = 2;  // big numbers, three to a row
+    BarList bars = 3;  // labelled bars, scaled to the largest
+    Table table = 4;
+    string button = 5;  // a button; its clicks arrive on PanelEvents with this label
+  }
+}
+
+message Stat {
+  string label = 1;
+  string value = 2;
+}
+
+message StatGrid {
+  repeated Stat stats = 1;
+}
+
+message Bar {
+  string label = 1;
+  double value = 2;
+}
+
+message BarList {
+  repeated Bar bars = 1;
+}
+
+message Row {
+  repeated string cells = 1;
+}
+
+message Table {
+  repeated string columns = 1;
+  repeated Row rows = 2;
+}
+
+message PanelEvent {
+  string panel = 1;  // the panel's id
+  string button = 2;  // the button's label
+}
+
+// ---- timing ----
+
+message TimingsRequest {
+  bool reset = 1;  // start counting again after this read
+}
+
+message Timing {
+  string name = 1;
+  int64 count = 2;  // runs since the last reset
+  double mean_ms = 3;
+  double p50_ms = 4;  // percentiles over the newest 500 runs
+  double p95_ms = 5;
+  double max_ms = 6;
+  double last_ms = 7;
+}
+
+message Timings {
+  repeated Timing timings = 1;
+}

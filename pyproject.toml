@@ -1,0 +1,19 @@
+[project]
+name = "hull"
+version = "0.1.0"
+description = "Hull: local algorithms that drive Rudder's YouTube filtering through its gRPC API."
+requires-python = ">=3.11"
+dependencies = ["grpcio>=1.85", "protobuf>=6.31"]
+
+[project.optional-dependencies]
+dev = ["grpcio-tools>=1.85"]  # scripts/sync_proto.py
+
+[project.scripts]
+hull = "hull.__main__:main"
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["hull*"]
