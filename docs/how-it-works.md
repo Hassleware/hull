@@ -4,10 +4,10 @@ The technical guide. For what Hull is, see the [README](../README.md).
 
 Hull is the ship under [Rudder](https://github.com/Hassleware/rudder): the heavy, local compute that decides what YouTube shows you.
 
-Rudder, a Firefox extension, reads every recommendation before it's shown and runs it through a pipeline of stages. Hull plugs its own stages into that pipeline through Rudder's local API. Then Gemma, running on your own GPU, builds a map of the culture you're exposed to and decides what you see from it:
+Rudder, a Firefox extension, reads every recommendation before it's shown and runs it through a pipeline of stages. Hull plugs its own stages into that pipeline through Rudder's local API. Then Gemma, running on your own GPU, builds a map of the internet culture you're exposed to and decides what you see from it:
 
 - **No repeats.** A video Rudder has put on screen once never comes back, and neither does a re-upload of it.
-- **A culture graph.** Gemma names every video's topics, from its exact subject up to its field. Topics become nodes, and topics that share videos get linked.
+- **An internet culture graph.** Gemma names every video's topics, from its exact subject up to its field. Topics become nodes, and topics that share videos get linked.
 - **Block and focus by meaning.** `block = ["grand theft auto"]` also hides Los Santos and Michael De Santa. `focus = ["bayesian statistics"]` turns YouTube into a study feed: only videos near that topic in the graph get through. Gemma settles the borderline cases using the graph.
 
 ```
@@ -48,10 +48,10 @@ Hull opens its window, loads the models, joins Rudder's pipeline right after Rud
   - *Rudder filtering* is Rudder's own on/off switch, the same as in Rudder's popup.
 
   Neither moves anything already on the YouTube page: the change applies to the videos not shown yet.
-- **Your goal.** Write what you want YouTube for. *Draft with Gemma* turns it into topics: *show only what's near* (focus) and *never show what's near* (block). Remove or add topics, then *Apply*. The goal is kept in `data/settings.json` and replaces the culture stage's `focus` and `block` from `hull.toml`.
-- **Your culture map.**
+- **Your goal.** Write what you want YouTube for. *Draft with Gemma* turns it into topics: *show only what's near* (focus) and *never show what's near* (block). Remove or add topics, then *Apply*. The goal is kept in `data/settings.json` and replaces the internet culture stage's `focus` and `block` from `hull.toml`.
+- **Your internet culture map.**
   - Every topic is a pin, sized by how many videos you've seen on it, and topics that share videos are joined by lines.
-  - Pins sit by meaning and by neighbours, so your culture forms clusters.
+  - Pins sit by meaning and by neighbours, so your internet culture forms clusters.
   - Blue is near your focus, red near what you block, and dashed where Gemma still decides.
   - Wheel to zoom, drag to move, click a pin for its videos and neighbours.
   - The *growth* slider replays how the map grew.
@@ -75,16 +75,16 @@ Everything is in `hull.toml`. Each `[[stage]]` becomes one stage in Rudder's pip
 |---|---|
 | `repeats` | Hides any video Rudder has put on screen before: by its id (a Bloom filter), or as a copy of a shown one (same title or thumbnail, found by LSH) |
 | `rules` | Your own regular expressions over the title, channel, description and thumbnail text. The first rule that matches decides |
-| `culture` | Has Gemma tag the video into your culture graph, then hides by `block` and `focus` |
+| `internet-culture` | Has Gemma tag the video into your internet culture graph, then hides by `block` and `focus` |
 
 A learning harness, for example:
 
 ```toml
 [[stage]]
-id = "culture"
-kind = "culture"
+id = "internet-culture"
+kind = "internet-culture"
 [stage.config]
-focus = ["bayesian statistics"]   # only videos near this in the culture graph
+focus = ["bayesian statistics"]   # only videos near this in the internet culture graph
 block = ["grand theft auto"]      # never this, or anything near it
 ```
 
@@ -98,7 +98,7 @@ Editing a stage's config, or applying a goal, makes Rudder judge again the video
 
 Hull's stages ask Rudder to ask again every time YouTube sends a video (`remember: false`). Without that, Rudder would reuse Hull's first answer forever and a repeat would never be caught.
 
-**Culture graph.** For each new video, Gemma (`gemma4:e4b`) sees:
+**Internet culture graph.** For each new video, Gemma (`gemma4:e4b`) sees:
 - the title, channel, description and thumbnail;
 - the text Rudder read from the thumbnail;
 - the known topics nearest to the video, so it reuses their names.
@@ -107,7 +107,7 @@ It names 3 to 6 topics, from the subject up to the field. For example, "I spent 
 
 **What you watch.** Rudder asks YouTube's player for English captions on every video you watch and streams each line to Hull as you reach it (`WatchCaptions`). Hull keeps them (table `captions`). Once about 600 characters have been said, Gemma tags the video again from its title and what's said in it, and those topics join your map. A watched video is mapped by its content, and the topic details mark it ▶. Captions stay hidden on the video unless you press CC or C.
 
-**Block and focus: areas of your map.** A goal covers an area of your culture map:
+**Block and focus: areas of your map.** A goal covers an area of your internet culture map:
 1. its topics, and near-synonyms of them (cosine ≥ `area_seed`, 0.85: "비디오 게임" for "video games");
 2. then, one edge out (`focus_hops` / `block_hops`), each neighbour where at least half its videos (`focus_link` / `block_link`) are already in the area.
 
@@ -140,7 +140,7 @@ Everything is in `data/`:
   | `outcomes` | What Rudder's pipeline decided each time |
   | `stage_results` | What each Hull stage said, and how long it took |
   | `shown`, `shown_prints` | When videos were put on screen; shown titles and thumbnail hashes |
-  | `topics`, `video_topics` | The culture graph: topics with their embeddings, and which videos attest to which |
+  | `topics`, `video_topics` | The internet culture graph: topics with their embeddings, and which videos attest to which |
   | `judgements` | Gemma's answers to "is X part of Y?" |
   | `captions`, `watched` | What was said in the videos you watched, line by line; when each was tagged again from it |
 

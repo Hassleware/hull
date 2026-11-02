@@ -1,6 +1,6 @@
-"""The culture map: your culture graph drawn as a map. A dot per topic, as big as the number of videos you've seen on
+"""The internet culture map: your internet culture graph drawn as a map. A dot per topic, as big as the number of videos you've seen on
 it; a line between topics that share videos. Where a topic sits comes from its meaning (its embedding, flattened to
-two dimensions) pulled together with its neighbours (a force layout), so related culture clusters on its own.
+two dimensions) pulled together with its neighbours (a force layout), so related internet culture clusters on its own.
 Colour says what your goal does with it: blue near your focus, red near what you block, dashed where Gemma decides."""
 import math
 
@@ -66,7 +66,7 @@ def read(graph, since=None):
     return names, [r[1] for r in rows], edges
 
 
-class CultureMap(QGraphicsView):
+class InternetCultureMap(QGraphicsView):
     picked = Signal(str)  # a topic was clicked
 
     def __init__(self):
@@ -82,10 +82,10 @@ class CultureMap(QGraphicsView):
         self.positions = {}  # topic → (x, y), kept between redraws so the map doesn't jump
         self.key, self.fitted, self.selected = None, False, None
 
-    def draw(self, culture, since=None):
-        """(re)draw from the culture stage's graph; marks: topic → "focus" | "block" | "ask" | None"""
-        names, counts, edges = read(culture.graph, since)
-        marks = culture.marks(names)
+    def draw(self, internet_culture, since=None):
+        """(re)draw from the internet culture stage's graph; marks: topic → "focus" | "block" | "ask" | None"""
+        names, counts, edges = read(internet_culture.graph, since)
+        marks = internet_culture.marks(names)
         key = (tuple(names), tuple(counts), len(edges), tuple(sorted(marks.items())), self.selected)
         if key == self.key:
             return
@@ -93,11 +93,11 @@ class CultureMap(QGraphicsView):
         scene = self.scene()
         scene.clear()
         if not names:
-            t = scene.addSimpleText("No culture yet: Hull draws your map as Gemma tags the videos Rudder sees.")
+            t = scene.addSimpleText("No internet culture yet: Hull draws your map as Gemma tags the videos Rudder sees.")
             t.setFont(QFont("Cascadia Mono", 11))
             return
         # start each topic where it was, else beside its neighbours, else where its meaning puts it
-        flat = flatten(np.array([culture.graph.vecs[culture.graph.index[n]] for n in names]))
+        flat = flatten(np.array([internet_culture.graph.vecs[internet_culture.graph.index[n]] for n in names]))
         start = np.zeros((len(names), 2))
         for i, n in enumerate(names):
             if n in self.positions:

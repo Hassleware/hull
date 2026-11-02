@@ -1,5 +1,5 @@
-"""Culture: Gemma names each video's topics, from its exact subject up to its broad field, and they go into the
-culture graph (hull/graph.py). A video is tagged once; after that it's answered from the graph at once.
+"""Internet culture: Gemma names each video's topics, from its exact subject up to its broad field, and they go into the
+internet culture graph (hull/graph.py). A video is tagged once; after that it's answered from the graph at once.
 
 Gemma runs in Ollama with the title, channel, description, Rudder's thumbnail text and the thumbnail itself, plus
 the known topics nearest the video, so it reuses the graph's names. A video you watch is tagged again once enough of
@@ -81,7 +81,7 @@ def jpeg(image):
         return []
 
 
-class Culture:
+class InternetCulture:
     def __init__(self, config, store):
         self.ollama = Ollama(config.get("ollama", "http://127.0.0.1:11434"))
         self.model, self.budget = config.get("model", "gemma4:e4b"), config.get("budget", 18)
@@ -173,7 +173,7 @@ class Culture:
         return {"text": text.strip(), "focus": clean(r["focus"]), "block": clean(r["block"])}
 
     def marks(self, names):
-        """what the goal does with each topic, for the culture map: "focus", "block", "ask" (Gemma hasn't decided yet) or
+        """what the goal does with each topic, for the internet culture map: "focus", "block", "ask" (Gemma hasn't decided yet) or
         None. Only what's known: it never asks Gemma or embeds anything new."""
         if any(n not in self.anchor_vecs for n in self.focus + self.block):
             return {}
@@ -284,7 +284,7 @@ class Culture:
         """for Hull's panel in Rudder's popup: [(title, [(label, value)])]"""
         s = self.graph.stats()
         rules = "; ".join(filter(None, [self.focus and "focus: " + ", ".join(self.focus), self.block and "block: " + ", ".join(self.block)]))
-        return [(f"Culture: {s['topics']} topics from {s['tagged']} videos{f' ({rules})' if rules else ''}. Most seen:", s["top"])]
+        return [(f"Internet culture: {s['topics']} topics from {s['tagged']} videos{f' ({rules})' if rules else ''}. Most seen:", s["top"])]
 
     def describe(self):
         s = self.graph.stats()

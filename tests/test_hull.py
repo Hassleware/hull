@@ -11,7 +11,7 @@ from hull.link import Hull
 from hull.rudder import rudder_pb2 as pb, rudder_pb2_grpc as rpc
 from hull.bloom import Bloom
 from hull.graph import PREFIX
-from hull.stages.culture import Culture
+from hull.stages.internet_culture import InternetCulture
 from hull.stages.repeats import Repeats
 from hull.stages.rules import Rules
 from hull.settings import Settings
@@ -118,18 +118,18 @@ class FakeOllama:
         return out / np.maximum(np.linalg.norm(out, axis=1, keepdims=True), 1e-9)
 
 
-def culture(store, ollama):
-    c = Culture({"budget": 2}, store)
+def internet_culture(store, ollama):
+    c = InternetCulture({"budget": 2}, store)
     c.ollama = c.graph.ollama = ollama
     c.graph.vecs = c.graph.vecs[:, :64]
     return c
 
 
-class TestCulture(unittest.TestCase):
+class TestInternetCulture(unittest.TestCase):
     def test_tags_into_the_graph_merging_names(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = Store(tmp)
-            c = culture(store, FakeOllama())
+            c = internet_culture(store, FakeOllama())
             rs = c.decide([Video("a", title="GTA 6 trailer"), Video("b", title="Bayes in 10 minutes")])
             self.assertEqual([r.fields["topics"] for r in rs], ["gta vi; rockstar games; video games", "bayes theorem; statistics"])
             r = c.decide([Video("c", title="Rockstar's next game")])[0]
@@ -138,13 +138,13 @@ class TestCulture(unittest.TestCase):
             c.decide([Video("a", title="GTA 6 trailer")])
             self.assertEqual(c.ollama.calls, n)  # tagged once
             self.assertEqual(dict(c.graph.stats()["top"])["video games"], 2)
-            self.assertEqual(c.panel()[0][0], "Culture: 5 topics from 3 videos. Most seen:")
+            self.assertEqual(c.panel()[0][0], "Internet culture: 5 topics from 3 videos. Most seen:")
             store.db.close()
 
     def test_slow_tagging_hides_then_catches_up(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = Store(tmp)
-            c = culture(store, FakeOllama(delay=3))
+            c = internet_culture(store, FakeOllama(delay=3))
             self.assertEqual(c.decide([Video("a", title="GTA 6 trailer")])[0].why, "not tagged yet")
             c.pool.shutdown(wait=True)
             self.assertEqual(c.graph.topics_of("a"), ["gta vi", "rockstar games", "video games"])
@@ -155,7 +155,7 @@ class TestBlockAndFocus(unittest.TestCase):
     def test_block_and_focus_through_the_graph(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = Store(tmp)
-            c = culture(store, FakeOllama())
+            c = internet_culture(store, FakeOllama())
             c.block, c.focus, c.focus_at, c.focus_ask = ["video games"], ["statistics"], 0.6, 0.6
             rs = c.decide([Video("a", title="GTA 6 trailer"), Video("b", title="Bayes in 10 minutes"), Video("m", title="Minecraft redstone")])
             self.assertEqual([r.why for r in rs], ["gta vi is in what you block (video games)", "", "minecraft is in what you block (video games)"])
@@ -175,7 +175,7 @@ class TestGemmaJudges(unittest.TestCase):
     def test_in_between_gemma_decides_once(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = Store(tmp)
-            c = culture(store, FakeOllama())
+            c = internet_culture(store, FakeOllama())
             c.block, c.block_at, c.block_ask, c.seed = ["video games"], 1.01, 0.5, 1.01  # no area: everything near is "in between"
             r = c.decide([Video("m", title="Minecraft redstone")])[0]
             self.assertEqual((r.decision, r.why), ("hide", "video games is near video games: it's a game"))
@@ -187,13 +187,13 @@ class TestGemmaJudges(unittest.TestCase):
     def test_focus_asks_with_the_graph_as_context(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = Store(tmp)
-            c = culture(store, FakeOllama())
+            c = internet_culture(store, FakeOllama())
             c.focus, c.focus_at, c.focus_ask, c.seed = ["statistics"], 1.01, 0.0, 1.01
             store._keep(Video("m", title="Minecraft redstone"), 0)
             r = c.decide([Video("m", title="Minecraft redstone")])[0]
             self.assertEqual(r.why, "off focus: minecraft isn't statistics (it's a game)")
             self.assertIn('Videos about "minecraft": Minecraft redstone', c.ollama.asked)
-            self.assertEqual(Culture({}, store).verdicts[("minecraft", "statistics")][0], False)  # on disk
+            self.assertEqual(InternetCulture({}, store).verdicts[("minecraft", "statistics")][0], False)  # on disk
             store.db.close()
 
 
@@ -371,7 +371,7 @@ class TestAreas(unittest.TestCase):
     def test_a_goal_covers_its_area_of_the_map(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = Store(tmp)
-            c = culture(store, FakeOllama())
+            c = internet_culture(store, FakeOllama())
             g = c.graph
             for vid, topics in {"1": ["video games", "minecraft"], "2": ["video games", "frostpunk", "city building"], "3": ["city building", "frostpunk"],
                                 "4": ["video games", "music"], **{f"m{i}": ["music", "pop music"] for i in range(5)}}.items():
@@ -391,7 +391,7 @@ class TestGoal(unittest.TestCase):
     def test_gemma_drafts_a_goal(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = Store(tmp)
-            c = culture(store, FakeOllama())
+            c = internet_culture(store, FakeOllama())
             self.assertEqual(c.draft_goal(" learn stats, no games "), {"text": "learn stats, no games", "focus": ["statistics"], "block": ["video games"]})
             store.db.close()
 
@@ -400,7 +400,7 @@ class TestCaptions(unittest.TestCase):
     def test_a_watched_video_is_tagged_again_from_whats_said(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = Store(tmp)
-            c = culture(store, FakeOllama())
+            c = internet_culture(store, FakeOllama())
             c.heard_chars = 40
             c.decide([Video("b", title="Bayes in 10 minutes")])  # tagged from its title: bayes theorem, statistics
             store._keep(Video("b", title="Bayes in 10 minutes"), 0)
@@ -412,7 +412,7 @@ class TestCaptions(unittest.TestCase):
             n = c.ollama.calls
             c.heard("b", "more and more words, and many more of them")
             self.assertEqual(c.ollama.calls, n)  # once per video
-            self.assertIn("b", Culture({}, store).retagged)  # kept
+            self.assertIn("b", InternetCulture({}, store).retagged)  # kept
             store.db.close()
 
 

@@ -1,4 +1,4 @@
-"""The culture graph: every topic you've been exposed to, and how they connect. Nodes are topics (short noun
+"""The internet culture graph: every topic you've been exposed to, and how they connect. Nodes are topics (short noun
 phrases, each with an embedding); a video attests to a few of them (video_topics), and topics that share videos are
 linked by how often they do. Kept in hull.db; the topic vectors are also held in memory for fast lookups.
 

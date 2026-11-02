@@ -5,7 +5,7 @@ While running, Hull:
   - steers, when switched on: one Rudder "app" stage per Hull stage sits in Rudder's pipeline, after the stage named
     in hull.toml. Switched off, Hull takes them out and Rudder filters on its own;
   - always records every video Rudder decides (WatchVideos), puts on screen (WatchShown) and, for videos you watch,
-    every caption line as you watch it (WatchCaptions), and passes them to the stages, so the culture graph and the
+    every caption line as you watch it (WatchCaptions), and passes them to the stages, so the internet culture graph and the
     repeats list keep growing even while Hull isn't steering;
   - shows a "Hull" panel in Rudder's popup, saying whether it steers.
 It reconnects on its own. On a clean exit it takes its stages back out of Rudder's pipeline, so YouTube works normally
@@ -204,7 +204,7 @@ class Hull:
                     await asyncio.to_thread(st.shown, ids)
 
     async def watch_captions(self, rudder):
-        """what's said in the videos you watch, as you watch: kept, and passed to stages (the culture stage re-tags)"""
+        """what's said in the videos you watch, as you watch: kept, and passed to stages (the internet culture stage re-tags)"""
         async for c in rudder.WatchCaptions(pb.Empty()):
             self.store.captions([c])
             for st in self.stages.values():

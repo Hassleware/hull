@@ -1,12 +1,12 @@
 <p align="center"><img src="docs/title.svg" alt="HULL" width="640"></p>
 
-Hull: Tell Youtube what you came for.
+Hull: Your own internet culture graph, locally computed to drive a more comprehensive Rudder Youtube filtering system via its gRPC API.
 
-<p align="center"><img src="docs/app.png" alt="Hull steering Rudder: your goal, and your culture map with what it blocks in red"></p>
+<p align="center"><img src="docs/app.png" alt="Hull steering Rudder: your goal, and your internet culture map with what it blocks in red"></p>
 
 Problem case: Rudder lets you choose what you don't want to see. But a list of words is never long enough. You block "GTA" and Youtube shows you "Los Santos". You hide a video and it comes back next week, or someone uploads it again. A student sits down to learn Bayesian statistics, and the home page fills up with games, cooking and music, because those keep people watching. Youtube does not know what you came for, and it has no way to ask.
 
-Solution: Hull is the ship under the Rudder. It runs on your own computer, and nothing leaves it. Gemma, a small AI model, reads every video Rudder sees, looks at its picture, and writes down what it is about. Hull puts every video on a map of everything you watch: your culture. Things that belong together sit together, so games end up near games and cooking near cooking. The map grows every day you use it.
+Solution: Hull is the ship under the Rudder. It runs on your own computer, and nothing leaves it. Gemma, a small AI model, reads every video Rudder sees, looks at its picture, and writes down what it is about. Hull puts every video on a map of everything you watch: your internet culture. Things that belong together sit together, so games end up near games and cooking near cooking. The map grows every day you use it.
 
 <p align="center"><img src="docs/goal.png" alt="Your goal in plain words, turned into topics by Gemma" width="366"></p>
 

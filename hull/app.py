@@ -1,5 +1,5 @@
 """Hull's desktop app (Qt): whether Hull is steering Rudder, two switches (Hull steers / Rudder filters), your goal, and
-your culture map. Hull itself (hull/link.py) runs on a thread of its own; the window only shows and switches it.
+your internet culture map. Hull itself (hull/link.py) runs on a thread of its own; the window only shows and switches it.
 Closing the window keeps Hull going in the system tray; Quit there takes Hull's stages out of Rudder and stops.
 
 Styled like Rudder's popup: paper, ink, square 2px borders, monospace, uppercase headings, Rudder blue."""
@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QApplication, QFrame, QGridLayout, QHBoxLayout, Q
                                QPlainTextEdit, QPushButton, QScrollArea, QSlider, QSystemTrayIcon, QVBoxLayout, QWidget)
 
 from hull.link import Hull
-from hull.mapview import CultureMap
+from hull.mapview import InternetCultureMap
 
 ASSETS = Path(__file__).parent / "assets"
 PAPER, INK, FAINT, BLUE, RED = "#f2ede1", "#111111", "#d9d2c1", "#5BB8F0", "#E5484D"
@@ -128,7 +128,7 @@ class Banner(QLabel):
         elif not s["firefox"]:
             text, bg, fg = "FIREFOX ISN'T CONNECTED · open Firefox with Rudder", PAPER, INK
         elif s["steering"]:
-            text, bg, fg = "HULL IS STEERING RUDDER · your goal and culture map decide what YouTube shows", BLUE, INK
+            text, bg, fg = "HULL IS STEERING RUDDER · your goal and internet culture map decide what YouTube shows", BLUE, INK
         else:
             text, bg, fg = "HULL IS WATCHING · Rudder filters on its own", PAPER, INK
         if s.get("warming"):
@@ -195,9 +195,9 @@ class GoalBox(QFrame):
     """your goal in plain words → Gemma drafts focus and block topics → you edit them → Apply"""
     drafted = Signal(object)
 
-    def __init__(self, hull, culture, applied):
+    def __init__(self, hull, internet_culture, applied):
         super().__init__()
-        self.hull, self.culture, self.applied = hull, culture, applied
+        self.hull, self.internet_culture, self.applied = hull, internet_culture, applied
         self.setProperty("box", True)
         v = QVBoxLayout(self)
         v.setContentsMargins(8, 8, 8, 8)
@@ -226,7 +226,7 @@ class GoalBox(QFrame):
         row.addStretch(1)
         v.addLayout(row)
         self.drafted.connect(self.show_draft)
-        goal = (hull.settings.get("goal") if hull.settings else None) or {"text": "", "focus": culture.focus, "block": culture.block}
+        goal = (hull.settings.get("goal") if hull.settings else None) or {"text": "", "focus": internet_culture.focus, "block": internet_culture.block}
         self.text.setPlainText(goal.get("text", ""))
         self.focus.set(goal.get("focus", []))
         self.block.set(goal.get("block", []))
@@ -240,7 +240,7 @@ class GoalBox(QFrame):
 
         def work():
             try:
-                self.drafted.emit(self.culture.draft_goal(text))
+                self.drafted.emit(self.internet_culture.draft_goal(text))
             except Exception as e:  # Ollama not running, say
                 self.drafted.emit(e)
         threading.Thread(target=work, daemon=True).start()
@@ -256,12 +256,12 @@ class GoalBox(QFrame):
 
     def use(self):
         goal = {"text": self.text.toPlainText().strip(), "focus": self.focus.items, "block": self.block.items}
-        self.note.setText("APPLIED" if goal["focus"] or goal["block"] else "NO GOAL: GEMMA ONLY MAPS YOUR CULTURE")
+        self.note.setText("APPLIED" if goal["focus"] or goal["block"] else "NO GOAL: GEMMA ONLY MAPS YOUR INTERNET CULTURE")
 
         def work():  # embedding the topics needs Ollama: off the window's thread
             self.hull.set_goal(goal)
             try:
-                self.culture.anchors(goal["focus"] + goal["block"])
+                self.internet_culture.anchors(goal["focus"] + goal["block"])
             except Exception as e:
                 log.warning("couldn't embed the goal's topics: %s", e)
             self.applied.emit()
@@ -370,13 +370,13 @@ class Window(QMainWindow):
         side.addWidget(self.filtering)
         self.numbers = Numbers(["recorded", "shown", "watched", "hull hid"])
         side.addWidget(self.numbers)
-        self.culture = next((st for st in hull.stages.values() if hasattr(st, "graph")), None)
-        if self.culture:
+        self.internet_culture = next((st for st in hull.stages.values() if hasattr(st, "graph")), None)
+        if self.internet_culture:
             side.addWidget(label("YOUR GOAL", "h2"))
-            side.addWidget(GoalBox(hull, self.culture, self.goal_applied))
+            side.addWidget(GoalBox(hull, self.internet_culture, self.goal_applied))
             self.goal_applied.connect(lambda: (setattr(self.map, "key", None), self.redraw()))
         side.addWidget(label("TOPIC", "h2"))
-        self.details = label("Click a topic on your culture map.")
+        self.details = label("Click a topic on your internet culture map.")
         self.details.setTextFormat(Qt.TextFormat.RichText)
         self.details.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.details.setStyleSheet(f"border: 2px solid {INK}; padding: 8px;")
@@ -397,14 +397,16 @@ class Window(QMainWindow):
         main = QVBoxLayout()
         main.setSpacing(6)
         head = QHBoxLayout()
-        head.addWidget(label("YOUR CULTURE MAP", "h2"))
+        title = label("YOUR INTERNET CULTURE MAP", "h2")
+        title.setWordWrap(False)
+        head.addWidget(title)
         head.addStretch(1)
         self.legend = label("● near your focus   ● near what you block   ◌ Gemma decides", "lbl")
         self.legend.setTextFormat(Qt.TextFormat.RichText)
         self.legend.setText(f'<span style="color:{BLUE}">●</span> NEAR YOUR FOCUS &nbsp; <span style="color:{RED}">●</span> NEAR WHAT YOU BLOCK &nbsp; ◌ GEMMA DECIDES')
         head.addWidget(self.legend)
         main.addLayout(head)
-        self.map = CultureMap()
+        self.map = InternetCultureMap()
         self.map.picked.connect(self.pick)
         main.addWidget(self.map, 1)
         when = QHBoxLayout()
@@ -455,25 +457,25 @@ class Window(QMainWindow):
         return first + (time.time() - first) * self.slider.value() / 1000
 
     def redraw(self):
-        if not self.culture:
+        if not self.internet_culture:
             return
         t = self.since()
         n = self.hull.store.db.execute("select count(*) from videos where ? is null or first_recorded <= ?", (t, t)).fetchone()[0]
         self.when.setText(("NOW" if t is None else time.strftime("%d %b %H:%M", time.localtime(t)).upper()) + f" · {n} VIDEOS")
-        self.map.draw(self.culture, t)
+        self.map.draw(self.internet_culture, t)
 
     def pick(self, name):
         """a topic's details: how often, what the goal does with it, its neighbours, its videos"""
-        if not self.culture or name not in self.culture.graph.index:
+        if not self.internet_culture or name not in self.internet_culture.graph.index:
             return
         self.map.selected = name
         self.redraw()
         db, e = self.hull.store.db, html.escape
-        mark = self.culture.marks([name]).get(name)
-        why = next((w for (t, _), (_, w) in self.culture.verdicts.items() if t == name), None)
+        mark = self.internet_culture.marks([name]).get(name)
+        why = next((w for (t, _), (_, w) in self.internet_culture.verdicts.items() if t == name), None)
         goal = {"focus": f'<span style="background:{BLUE}">&nbsp;NEAR YOUR FOCUS&nbsp;</span>', "block": f'<span style="background:{RED}">&nbsp;NEAR WHAT YOU BLOCK&nbsp;</span>',
-                "ask": "GEMMA HASN'T DECIDED YET"}.get(mark, "outside your goal" if (self.culture.focus or self.culture.block) else "no goal set")
-        neighbours = self.culture.graph.neighbours(name)[:8]
+                "ask": "GEMMA HASN'T DECIDED YET"}.get(mark, "outside your goal" if (self.internet_culture.focus or self.internet_culture.block) else "no goal set")
+        neighbours = self.internet_culture.graph.neighbours(name)[:8]
         videos = db.execute("""select v.title, exists(select 1 from shown s where s.video_id = v.id) + exists(select 1 from watched w where w.video_id = v.id),
                                       (select o.hidden from outcomes o where o.video_id = v.id order by o.at desc limit 1)
                                from video_topics vt join topics t on t.id = vt.topic_id join videos v on v.id = vt.video_id
@@ -482,7 +484,7 @@ class Window(QMainWindow):
         self.details.setText(
             f'<b style="font-size:15px">{e(name)}</b><br>{count} videos · {goal}' + (f"<br><i>Gemma: {e(why)}</i>" if why else "") +
             "<br><br><b>NEIGHBOURS</b><br>" + (" · ".join(f'<a href="{e(u)}" style="color:{INK}">{e(u)}</a> {share:.0%}' for u, share in neighbours) or "none yet") +
-            "<br><br><b>VIDEOS</b><br>" + "<br>".join(f"{'▶' if s == 2 else '▣' if s else ('▢' if h is None else '▨')} {e(t[:44])}" for t, s, h in videos) +
+            "<br><br><b>VIDEOS</b><br>" + "<br>".join(f"{'▶' if s == 2 else '▣' if s else ('▢' if h is None else '▨')} {e(t[:44])}" for t, s, h in videos if t.strip()) +
             "<br><span style='font-size:10px'>▶ WATCHED · ▣ SHOWN · ▨ HIDDEN · ▢ NOT ON SCREEN</span>")
 
     def edges(self, pos):

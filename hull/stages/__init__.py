@@ -9,8 +9,8 @@
 
 To add one: write it in this folder and add it to KINDS.
 """
-from .culture import Culture
+from .internet_culture import InternetCulture
 from .repeats import Repeats
 from .rules import Rules
 
-KINDS = {"culture": Culture, "repeats": Repeats, "rules": Rules}
+KINDS = {"internet-culture": InternetCulture, "repeats": Repeats, "rules": Rules}

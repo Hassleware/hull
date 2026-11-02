@@ -2,7 +2,7 @@
 
 Hull is a Python desktop app (Qt) that runs its own stages inside Rudder's filtering pipeline, through Rudder's local gRPC API (127.0.0.1:7833, served by Rudder's bridge). Rudder is a separate project: a Firefox extension that filters YouTube recommendations before they're shown. Hull's stages:
 - block repeats (a Bloom filter plus LSH);
-- run Gemma in Ollama to tag videos into a culture graph;
+- run Gemma in Ollama to tag videos into an internet culture graph;
 - hide by `block` and `focus` topics through that graph.
 
 Read `README.md` (what Hull is) and `docs/how-it-works.md` (how) first.
@@ -13,15 +13,15 @@ Read `README.md` (what Hull is) and `docs/how-it-works.md` (how) first.
 |---|---|
 | `hull/__main__.py` | `python -m hull [app \| run \| stats \| leave] [--config hull.toml]` (default: app) |
 | `hull/app.py` | The desktop app (Qt, PySide6): banner, switches, goal box, topic details, tray. Rudder's popup styling |
-| `hull/mapview.py` | The culture map: force layout over the graph, pins coloured by the goal, growth slider data |
+| `hull/mapview.py` | The internet culture map: force layout over the graph, pins coloured by the goal, growth slider data |
 | `hull/settings.py` | `data/settings.json`: steering on/off and the goal |
 | `hull/assets/` | The wordmark and icons, as SVG; the tray shows `hull-icon.svg` while steering, `hull-icon-off.svg` otherwise |
 | `hull/link.py` | The link to Rudder: warms models, joins and leaves the pipeline (`remember: false`), serves stage requests, records videos (WatchVideos), what's shown (WatchShown) and what's said in watched videos (WatchCaptions), draws the popup panel, reconnects; thread-safe `set_steering`, `set_filtering`, `set_goal` for the app |
 | `hull/stages/` | Stage kinds; `KINDS` in `__init__.py` lists them, and the interface |
 | `hull/stages/repeats.py` | Shown once, never again: Bloom filter of ids plus near-duplicate titles and thumbnails |
-| `hull/stages/culture.py` | Gemma tags videos into the graph; block, focus, and Gemma's in-between judgements |
+| `hull/stages/internet_culture.py` | Gemma tags videos into the graph; block, focus, and Gemma's in-between judgements |
 | `hull/stages/rules.py` | Regular expressions |
-| `hull/graph.py` | The culture graph: topics, merging, neighbours, relatedness |
+| `hull/graph.py` | The internet culture graph: topics, merging, neighbours, relatedness |
 | `hull/bloom.py`, `hull/lsh.py` | Bloom filter; MinHash and dHash LSH |
 | `hull/ollama.py` | Ollama's HTTP API (standard library) |
 | `hull/video.py` | `Video` (Rudder's video record) and `Result` (hide / show / pass, why, fields) |
@@ -37,7 +37,7 @@ Read `README.md` (what Hull is) and `docs/how-it-works.md` (how) first.
 3. Add a `[[stage]]` for it in `hull.toml`.
 4. Add a test to `tests/`.
 
-`decide` runs in a worker thread and must answer within Rudder's 25 s (the culture stage keeps to an 18 s budget). It must return exactly one `Result` per video, and an exception hides the whole batch. Rudder asks again on every sighting, so cache your own per-video work, as the culture stage does in the graph.
+`decide` runs in a worker thread and must answer within Rudder's 25 s (the internet culture stage keeps to an 18 s budget). It must return exactly one `Result` per video, and an exception hides the whole batch. Rudder asks again on every sighting, so cache your own per-video work, as the internet culture stage does in the graph.
 
 ## Commands
 

@@ -1,5 +1,5 @@
 """What the app changes, kept between runs in data/settings.json: whether Hull steers Rudder, and the goal
-({"text", "focus": [...], "block": [...]}, which replaces the culture stage's focus and block from hull.toml)."""
+({"text", "focus": [...], "block": [...]}, which replaces the internet culture stage's focus and block from hull.toml)."""
 import json, threading
 from pathlib import Path
 

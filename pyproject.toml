@@ -1,7 +1,7 @@
 [project]
 name = "hull"
 version = "0.1.0"
-description = "Hull: Gemma, a culture graph and no repeats, driving Rudder's YouTube filtering through its local gRPC API."
+description = "Hull: Your own internet culture graph, locally computed to drive a more comprehensive Rudder Youtube filtering system via its gRPC API."
 requires-python = ">=3.11"
 dependencies = ["grpcio>=1.85", "protobuf>=6.31", "numpy>=2", "pillow>=11", "PySide6>=6.10"]
 
