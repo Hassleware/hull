@@ -2,7 +2,9 @@
 culture graph (hull/graph.py). A video is tagged once; after that it's answered from the graph at once.
 
 Gemma runs in Ollama with the title, channel, description, Rudder's thumbnail text and the thumbnail itself, plus
-the known topics nearest the video, so it reuses the graph's names. Videos not tagged within `budget` seconds are
+the known topics nearest the video, so it reuses the graph's names. A video you watch is tagged again once enough of
+it has been said (`heard_chars` of its captions): its title and what's said in it, so watched videos are mapped by
+their content, not just how they're sold (table watched). Videos not tagged within `budget` seconds are
 hidden for now (strict) and keep being tagged; Rudder asks again the next time YouTube sends them.
 
 Then the graph decides (relatedness: hull/graph.py):
@@ -18,6 +20,7 @@ config: { "model": "gemma4:e4b", "embed_model": "embeddinggemma", "ollama": "htt
           "parallel": 6,     # requests to Ollama at once
           "budget": 18,      # seconds per batch, under Rudder's 25
           "merge": 0.94,     # cosine at which a new topic name is an old one
+          "heard_chars": 600,  # captions heard before a watched video is tagged again from them
           "block": [], "block_at": 0.85, "block_ask": 0.7,
           "focus": [], "focus_at": 0.75, "focus_ask": 0.62 }
 """
@@ -28,7 +31,7 @@ from PIL import Image
 
 from hull.graph import Graph
 from hull.ollama import Ollama
-from hull.video import Result
+from hull.video import Result, Video
 
 log = logging.getLogger("hull")
 SCHEMA = {"type": "object", "properties": {"topics": {"type": "array", "items": {"type": "string"}, "minItems": 3, "maxItems": 6}},
@@ -56,6 +59,9 @@ Title: {title}
 Channel: {channel}
 Description: {description}
 Text in the thumbnail: {thumbnail_text}"""
+HEARD = """
+
+The viewer watched this video. What's said in it (its captions, as far as they watched): {said}"""
 
 
 def jpeg(image):
@@ -85,6 +91,10 @@ class Culture:
         self.db = store.db
         self.verdicts = {(t, a): (bool(p), w) for t, a, p, w in store.db.execute("select * from judgements")}
         self.asking = {}  # (topic, anchor) → Gemma's answer, while it runs
+        store.db.execute("create table if not exists watched (video_id text primary key, at real, topics text)")
+        self.heard_chars = config.get("heard_chars", 600)
+        self.said = {}  # video id → its captions heard so far, until it's tagged from them
+        self.retagged = {r[0] for r in store.db.execute("select video_id from watched")}
 
     def warm(self):
         """load both models before Rudder sends anything (a cold Gemma takes ~50 s, past Rudder's 25)"""
@@ -93,13 +103,34 @@ class Culture:
         self.anchors(self.block + self.focus)
         self.ollama.timeout = 60
 
-    def tag(self, v):
+    def tag(self, v, said=""):
         known = ", ".join(self.graph.nearest(self.graph.embed([f"{v.title} — {v.channel}"])[0])) or "(none yet)"
-        r = self.ollama.json(self.model, PROMPT.format(known=known, title=v.title, channel=v.channel or "unknown",
-                                                       description=v.description[:500] or "none",
-                                                       thumbnail_text=v.fields.get("thumbnail_text") or "none"),
-                             SCHEMA, jpeg(v.thumbnail) if v.thumbnail else [], SYSTEM)
+        prompt = PROMPT.format(known=known, title=v.title, channel=v.channel or "unknown", description=v.description[:500] or "none",
+                               thumbnail_text=v.fields.get("thumbnail_text") or "none") + (HEARD.format(said=said[:2500]) if said else "")
+        r = self.ollama.json(self.model, prompt, SCHEMA, jpeg(v.thumbnail) if v.thumbnail else [], SYSTEM)
         return self.graph.attest(v.id, r["topics"])
+
+    def heard(self, video_id, text):
+        """a caption line of a video you're watching: once enough is said, Gemma tags it again from it (once per video)"""
+        with self.lock:
+            if video_id in self.retagged:
+                return
+            self.said[video_id] = (self.said.get(video_id, "") + " " + text).strip()
+            if len(self.said[video_id]) < self.heard_chars:
+                return
+            said = self.said.pop(video_id)
+            self.retagged.add(video_id)
+        row = self.db.execute("select title, channel, description from videos where id = ?", (video_id,)).fetchone()
+        v = Video(video_id, *(row or ("", "", "")))
+
+        def work():
+            topics = self.tag(v, said)
+            self.db.execute("insert or replace into watched values (?,?,?)", (video_id, time.time(), "; ".join(topics)))
+            self.db.commit()
+            log.info("watched %s: %s", v.title or video_id, ", ".join(topics))
+        f = self.pool.submit(work)
+        f.add_done_callback(lambda f: f.exception() and log.warning("couldn't tag %s from its captions: %s", video_id, f.exception()))
+        return f
 
     def _start(self, v):
         with self.lock:

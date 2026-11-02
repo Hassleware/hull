@@ -16,7 +16,7 @@ Read `README.md` (what Hull is) and `docs/how-it-works.md` (how) first.
 | `hull/mapview.py` | The culture map: force layout over the graph, pins coloured by the goal, growth slider data |
 | `hull/settings.py` | `data/settings.json`: steering on/off and the goal |
 | `hull/assets/` | The wordmark and icons, as SVG; the tray shows `hull-icon.svg` while steering, `hull-icon-off.svg` otherwise |
-| `hull/link.py` | The link to Rudder: warms models, joins and leaves the pipeline (`remember: false`), serves stage requests, records videos (WatchVideos) and what's shown (WatchShown), draws the popup panel, reconnects; thread-safe `set_steering`, `set_filtering`, `set_goal` for the app |
+| `hull/link.py` | The link to Rudder: warms models, joins and leaves the pipeline (`remember: false`), serves stage requests, records videos (WatchVideos), what's shown (WatchShown) and what's said in watched videos (WatchCaptions), draws the popup panel, reconnects; thread-safe `set_steering`, `set_filtering`, `set_goal` for the app |
 | `hull/stages/` | Stage kinds; `KINDS` in `__init__.py` lists them, and the interface |
 | `hull/stages/repeats.py` | Shown once, never again: Bloom filter of ids plus near-duplicate titles and thumbnails |
 | `hull/stages/culture.py` | Gemma tags videos into the graph; block, focus, and Gemma's in-between judgements |

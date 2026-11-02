@@ -90,6 +90,22 @@ class Shown(_message.Message):
     at_ms: int
     def __init__(self, ids: _Optional[_Iterable[str]] = ..., at_ms: _Optional[int] = ...) -> None: ...
 
+class Caption(_message.Message):
+    __slots__ = ("video_id", "start_ms", "end_ms", "text", "language", "auto")
+    VIDEO_ID_FIELD_NUMBER: _ClassVar[int]
+    START_MS_FIELD_NUMBER: _ClassVar[int]
+    END_MS_FIELD_NUMBER: _ClassVar[int]
+    TEXT_FIELD_NUMBER: _ClassVar[int]
+    LANGUAGE_FIELD_NUMBER: _ClassVar[int]
+    AUTO_FIELD_NUMBER: _ClassVar[int]
+    video_id: str
+    start_ms: int
+    end_ms: int
+    text: str
+    language: str
+    auto: bool
+    def __init__(self, video_id: _Optional[str] = ..., start_ms: _Optional[int] = ..., end_ms: _Optional[int] = ..., text: _Optional[str] = ..., language: _Optional[str] = ..., auto: _Optional[bool] = ...) -> None: ...
+
 class VideosRequest(_message.Message):
     __slots__ = ("limit", "thumbnails")
     LIMIT_FIELD_NUMBER: _ClassVar[int]

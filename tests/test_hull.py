@@ -99,6 +99,9 @@ class FakeOllama:
     def json(self, model, prompt, schema, images=(), system=""):
         time.sleep(self.delay)
         self.calls += 1
+        if "What's said in it" in prompt:
+            self.heard_prompt = prompt
+            return {"topics": ["bayes theorem", "probability theory"]}
         if "focus" in schema["properties"]:
             return {"focus": ["Statistics ", "statistics"], "block": ["video games"]}
         if "part_of" in schema["properties"]:
@@ -258,6 +261,10 @@ class FakeRudder(rpc.RudderServicer):
         yield pb.Shown(ids=["bread"], at_ms=1)
         await asyncio.Event().wait()
 
+    async def WatchCaptions(self, request, context):
+        await asyncio.Event().wait()
+        yield pb.Caption()
+
     async def SetPanel(self, request, context):
         self.panels.append(request)
         return pb.Empty()
@@ -366,6 +373,26 @@ class TestGoal(unittest.TestCase):
             store = Store(tmp)
             c = culture(store, FakeOllama())
             self.assertEqual(c.draft_goal(" learn stats, no games "), {"text": "learn stats, no games", "focus": ["statistics"], "block": ["video games"]})
+            store.db.close()
+
+
+class TestCaptions(unittest.TestCase):
+    def test_a_watched_video_is_tagged_again_from_whats_said(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(tmp)
+            c = culture(store, FakeOllama())
+            c.heard_chars = 40
+            c.decide([Video("b", title="Bayes in 10 minutes")])  # tagged from its title: bayes theorem, statistics
+            store._keep(Video("b", title="Bayes in 10 minutes"), 0)
+            self.assertIsNone(c.heard("b", "today we update our beliefs"))  # not enough said yet
+            c.heard("b", "with the likelihood and a prior").result()
+            self.assertIn("update our beliefs with the likelihood", c.ollama.heard_prompt)
+            self.assertEqual(c.graph.topics_of("b"), ["bayes theorem", "statistics", "probability theory"])  # added, not doubled
+            self.assertEqual(dict(c.graph.stats()["top"])["bayes theorem"], 1)
+            n = c.ollama.calls
+            c.heard("b", "more and more words, and many more of them")
+            self.assertEqual(c.ollama.calls, n)  # once per video
+            self.assertIn("b", Culture({}, store).retagged)  # kept
             store.db.close()
 
 

@@ -15,6 +15,9 @@ create table if not exists stage_results (  -- what a Hull stage said about it
   video_id text, stage text, at real, decision text, why text, fields text, ms real);
 create table if not exists shown (  -- each time Rudder put it on screen
   video_id text, at_ms integer);
+create table if not exists captions (  -- what was said in the videos you watched, line by line as you watched it
+  video_id text, start_ms integer, end_ms integer, text text, auto integer, at real);
+create index if not exists captions_video on captions(video_id);
 create index if not exists outcomes_video on outcomes(video_id);
 create index if not exists stage_results_video on stage_results(video_id);
 """
@@ -106,12 +109,19 @@ class Store:
         self.db.executemany("insert into shown values (?,?)", [(i, at_ms) for i in ids])
         self.db.commit()
 
+    def captions(self, lines):
+        """caption lines of a video you're watching (Rudder: WatchCaptions)"""
+        now = time.time()
+        self.db.executemany("insert into captions values (?,?,?,?,?,?)", [(c.video_id, c.start_ms, c.end_ms, c.text, int(c.auto), now) for c in lines])
+        self.db.commit()
+
     def stats(self):
         one = lambda q: self.db.execute(q).fetchone()[0]
         return {
             "videos": one("select count(*) from videos"),
             "hidden": one("select count(distinct video_id) from outcomes where hidden = 1"),
             "shown": one("select count(distinct video_id) from shown"),
+            "watched": one("select count(distinct video_id) from captions"),
             "thumbnails": sum(1 for _ in (self.folder / "thumbs").iterdir()),
             "hid_by_stage": dict(self.db.execute("select stage, count(distinct video_id) from stage_results where decision = 'hide' group by stage").fetchall()),
             "ms_by_stage": dict(self.db.execute("select stage, avg(ms) from stage_results group by stage").fetchall()),

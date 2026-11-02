@@ -63,7 +63,10 @@ class Graph:
                 i = self._find(name, vec)
                 if self.names[i] not in out:
                     out.append(self.names[i])
-                    self.db.execute("insert or ignore into video_topics values (?,?,?)", (video_id, self.ids[i], len(out)))
+                    if self.db.execute("select 1 from video_topics where video_id = ? and topic_id = ?", (video_id, self.ids[i])).fetchone():
+                        continue  # already on it (a video tagged again, from its captions)
+                    rank = self.db.execute("select count(*) from video_topics where video_id = ?", (video_id,)).fetchone()[0] + 1
+                    self.db.execute("insert into video_topics values (?,?,?)", (video_id, self.ids[i], rank))
                     self.db.execute("update topics set videos = videos + 1 where id = ?", (self.ids[i],))
             self.db.commit()
         return out

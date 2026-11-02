@@ -34,6 +34,9 @@ service Rudder {
   rpc WatchVideos(Empty) returns (stream VideoEvent);
   // The videos Rudder puts on screen, as it happens (a decided video may never be shown: the user didn't get to it).
   rpc WatchShown(Empty) returns (stream Shown);
+  // Captions of the videos you watch, line by line as you watch them (English: Rudder asks the player for them).
+  // Lines you skip past aren't sent.
+  rpc WatchCaptions(Empty) returns (stream Caption);
   // The newest videos the bridge has seen (up to 500), newest first.
   rpc GetVideos(VideosRequest) returns (VideoEvents);
   // Run videos through the current pipeline without showing, counting or remembering them. For tests.
@@ -89,6 +92,15 @@ message VideoEvent {
 message Shown {
   repeated string ids = 1;
   int64 at_ms = 2;  // Unix ms
+}
+
+message Caption {
+  string video_id = 1;
+  int64 start_ms = 2;  // where the line is in the video
+  int64 end_ms = 3;
+  string text = 4;
+  string language = 5;  // "en", or e.g. "en" translated from another language
+  bool auto = 6;  // YouTube's automatic captions rather than a person's
 }
 
 message VideosRequest {

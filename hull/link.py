@@ -4,8 +4,9 @@ While running, Hull:
   - serves its stages: Rudder sends batches of videos, each Hull stage decides them in a worker thread;
   - steers, when switched on: one Rudder "app" stage per Hull stage sits in Rudder's pipeline, after the stage named
     in hull.toml. Switched off, Hull takes them out and Rudder filters on its own;
-  - always records every video Rudder decides (WatchVideos) and puts on screen (WatchShown), and tells the stages
-    what was shown, so the culture graph and the repeats list keep growing even while Hull isn't steering;
+  - always records every video Rudder decides (WatchVideos), puts on screen (WatchShown) and, for videos you watch,
+    every caption line as you watch it (WatchCaptions), and passes them to the stages, so the culture graph and the
+    repeats list keep growing even while Hull isn't steering;
   - shows a "Hull" panel in Rudder's popup, saying whether it steers.
 It reconnects on its own. On a clean exit it takes its stages back out of Rudder's pipeline, so YouTube works normally
 without Hull; if it crashes instead, Rudder hides what Hull would have checked (when_missing = "hide"), as Rudder is
@@ -115,7 +116,7 @@ class Hull:
             await asyncio.sleep(5)
 
     async def session(self, rudder):
-        tasks = [asyncio.create_task(t) for t in (self.serve(rudder), self.watch(rudder), self.watch_shown(rudder), self.watch_state(rudder))]
+        tasks = [asyncio.create_task(t) for t in (self.serve(rudder), self.watch(rudder), self.watch_shown(rudder), self.watch_captions(rudder), self.watch_state(rudder))]
         try:
             await self.wait_for_app(rudder)
             await (self.join(rudder) if self.steering else self.leave_pipeline(rudder))
@@ -202,6 +203,14 @@ class Hull:
                 if hasattr(st, "shown"):
                     await asyncio.to_thread(st.shown, ids)
 
+    async def watch_captions(self, rudder):
+        """what's said in the videos you watch, as you watch: kept, and passed to stages (the culture stage re-tags)"""
+        async for c in rudder.WatchCaptions(pb.Empty()):
+            self.store.captions([c])
+            for st in self.stages.values():
+                if hasattr(st, "heard"):
+                    await asyncio.to_thread(st.heard, c.video_id, c.text)
+
     async def panel(self, rudder):
         """Hull's panel in Rudder's popup, redrawn every 5 s"""
         while True:
@@ -218,7 +227,7 @@ class Hull:
             pb.Block(stats=pb.StatGrid(stats=[
                 pb.Stat(label="recorded", value=str(s["videos"])),
                 pb.Stat(label="shown", value=str(s["shown"])),
-                pb.Stat(label="hull hid", value=str(sum(s["hid_by_stage"].values()))),
+                pb.Stat(label="watched", value=str(s["watched"])),
             ])),
             pb.Block(bars=pb.BarList(bars=[pb.Bar(label=f"{sid} · {st.describe()} · {s['ms_by_stage'].get(sid, 0):.1f} ms", value=s["hid_by_stage"].get(sid, 0))
                                            for sid, st in self.stages.items()])),

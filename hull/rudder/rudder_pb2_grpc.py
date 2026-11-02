@@ -79,6 +79,11 @@ class RudderStub:
                 request_serializer=hull_dot_rudder_dot_rudder__pb2.Empty.SerializeToString,
                 response_deserializer=hull_dot_rudder_dot_rudder__pb2.Shown.FromString,
                 _registered_method=True)
+        self.WatchCaptions = channel.unary_stream(
+                '/rudder.v1.Rudder/WatchCaptions',
+                request_serializer=hull_dot_rudder_dot_rudder__pb2.Empty.SerializeToString,
+                response_deserializer=hull_dot_rudder_dot_rudder__pb2.Caption.FromString,
+                _registered_method=True)
         self.GetVideos = channel.unary_unary(
                 '/rudder.v1.Rudder/GetVideos',
                 request_serializer=hull_dot_rudder_dot_rudder__pb2.VideosRequest.SerializeToString,
@@ -179,6 +184,14 @@ class RudderServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def WatchCaptions(self, request, context):
+        """Captions of the videos you watch, line by line as you watch them (English: Rudder asks the player for them).
+        Lines you skip past aren't sent.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def GetVideos(self, request, context):
         """The newest videos the bridge has seen (up to 500), newest first.
         """
@@ -264,6 +277,11 @@ def add_RudderServicer_to_server(servicer, server):
                     servicer.WatchShown,
                     request_deserializer=hull_dot_rudder_dot_rudder__pb2.Empty.FromString,
                     response_serializer=hull_dot_rudder_dot_rudder__pb2.Shown.SerializeToString,
+            ),
+            'WatchCaptions': grpc.unary_stream_rpc_method_handler(
+                    servicer.WatchCaptions,
+                    request_deserializer=hull_dot_rudder_dot_rudder__pb2.Empty.FromString,
+                    response_serializer=hull_dot_rudder_dot_rudder__pb2.Caption.SerializeToString,
             ),
             'GetVideos': grpc.unary_unary_rpc_method_handler(
                     servicer.GetVideos,
@@ -534,6 +552,33 @@ class Rudder:
             '/rudder.v1.Rudder/WatchShown',
             hull_dot_rudder_dot_rudder__pb2.Empty.SerializeToString,
             hull_dot_rudder_dot_rudder__pb2.Shown.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def WatchCaptions(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/rudder.v1.Rudder/WatchCaptions',
+            hull_dot_rudder_dot_rudder__pb2.Empty.SerializeToString,
+            hull_dot_rudder_dot_rudder__pb2.Caption.FromString,
             options,
             channel_credentials,
             insecure,
