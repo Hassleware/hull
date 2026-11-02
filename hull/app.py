@@ -35,7 +35,7 @@ QLineEdit {{ min-height: 20px; }}
 QLineEdit:focus, QPlainTextEdit:focus {{ background: #ffffff; }}
 QScrollArea {{ border: 0; }}
 QScrollBar:vertical {{ width: 8px; background: {PAPER}; margin: 0; }}
-QScrollBar::handle:vertical {{ background: {INK}; min-height: 30px; }}
+QScrollBar::handle:vertical {{ background: {FAINT}; min-height: 30px; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; }}
 QScrollBar::add-page, QScrollBar::sub-page {{ background: none; }}
 QSlider::groove:horizontal {{ height: 2px; background: {INK}; }}
@@ -403,7 +403,7 @@ class Window(QMainWindow):
         videos = db.execute("""select v.title, exists(select 1 from shown s where s.video_id = v.id),
                                       (select o.hidden from outcomes o where o.video_id = v.id order by o.at desc limit 1)
                                from video_topics vt join topics t on t.id = vt.topic_id join videos v on v.id = vt.video_id
-                               where t.name = ? order by v.first_recorded desc limit 8""", (name,)).fetchall()
+                               where t.name = ? and v.title != '' order by v.first_recorded desc limit 8""", (name,)).fetchall()
         count = db.execute("select count(*) from video_topics vt join topics t on t.id = vt.topic_id where t.name = ?", (name,)).fetchone()[0]
         self.details.setText(
             f'<b style="font-size:15px">{e(name)}</b><br>{count} videos · {goal}' + (f"<br><i>Gemma: {e(why)}</i>" if why else "") +
