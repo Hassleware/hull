@@ -52,6 +52,8 @@ Hull opens its window, loads the models, joins Rudder's pipeline right after Rud
 - **Your internet culture map.**
   - Every topic is a pin, sized by how many videos you've seen on it, and topics that share videos are joined by lines.
   - Pins sit by meaning and by neighbours, so your internet culture forms clusters.
+  - Themes (communities found with Louvain: music, gaming, cooking…) get a shaded shape. Zoomed out, each theme shows one name, its most-seen topic and how many topics it holds, and the lines between two themes become one thick line. Zoom in and a theme opens: its topics' names and every line come back.
+  - A name is drawn only where it has room: the most-seen go first, and a name that would touch another waits until you zoom in. Every dot is always drawn, and hovering one shows its name.
   - Blue is near your focus, red near what you block, and dashed where Gemma still decides.
   - Wheel to zoom, drag to move, click a pin for its videos and neighbours.
   - The *growth* slider replays how the map grew.

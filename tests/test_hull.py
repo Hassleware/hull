@@ -417,6 +417,15 @@ class TestCaptions(unittest.TestCase):
 
 
 class TestMapLayout(unittest.TestCase):
+    def test_communities_split_where_links_thin(self):
+        from hull.mapview import communities
+        # two tight groups of four, joined by one thin link
+        edges = [(a, b, 3) for g in ((0, 1, 2, 3), (4, 5, 6, 7)) for a in g for b in g if a < b] + [(3, 4, 1)]
+        g = communities(8, edges, [3] * 8)
+        self.assertEqual(len({g[i] for i in range(4)}), 1)
+        self.assertEqual(len({g[i] for i in range(4, 8)}), 1)
+        self.assertNotEqual(g[0], g[4])
+
     def test_linked_topics_end_up_closer(self):
         from hull.mapview import layout
         start = np.random.default_rng(1).normal(0, 0.5, (6, 2))
