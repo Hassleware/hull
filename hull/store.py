@@ -1,7 +1,7 @@
 """Everything Hull sees, kept on disk: every video Rudder decided (its record and outcome), what each Hull stage said
 about it, and its thumbnail. SQLite in data/hull.db, thumbnails in data/thumbs/. This is what later algorithms learn
 from and are measured against."""
-import json, sqlite3, time
+import json, sqlite3, threading, time
 from pathlib import Path
 
 SCHEMA = """
@@ -20,12 +20,55 @@ create index if not exists stage_results_video on stage_results(video_id);
 """
 
 
+class Rows:
+    """a query's rows, already fetched (so the lock isn't held while they're read)"""
+    def __init__(self, cur):
+        self.rows, self.lastrowid = cur.fetchall(), cur.lastrowid
+
+    def fetchone(self):
+        return self.rows[0] if self.rows else None
+
+    def fetchall(self):
+        return self.rows
+
+    def __iter__(self):
+        return iter(self.rows)
+
+
+class LockedDB:
+    """one SQLite connection shared by Hull's threads (the link, stages' workers, the app), one call at a time: SQLite's
+    Python driver fails ("API misuse") when threads use a connection at once. ponytail: one lock for everything; a
+    connection per thread if it ever gets contended"""
+    def __init__(self, path):
+        self.conn = sqlite3.connect(path, check_same_thread=False)
+        self.lock = threading.RLock()
+
+    def execute(self, sql, args=()):
+        with self.lock:
+            return Rows(self.conn.execute(sql, args))
+
+    def executemany(self, sql, rows):
+        with self.lock:
+            self.conn.executemany(sql, rows)
+
+    def executescript(self, sql):
+        with self.lock:
+            self.conn.executescript(sql)
+
+    def commit(self):
+        with self.lock:
+            self.conn.commit()
+
+    def close(self):
+        with self.lock:
+            self.conn.close()
+
+
 class Store:
     def __init__(self, folder):
         self.folder = Path(folder)
         (self.folder / "thumbs").mkdir(parents=True, exist_ok=True)
-        # stages use it from worker threads; Python's sqlite3 serializes calls on one connection
-        self.db = sqlite3.connect(self.folder / "hull.db", check_same_thread=False)
+        self.db = LockedDB(self.folder / "hull.db")
         self.db.executescript(SCHEMA)
 
     def _keep(self, v, now):
