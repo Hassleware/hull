@@ -1,122 +1,30 @@
-# Hull
+<p align="center"><img src="docs/title.svg" alt="HULL" width="640"></p>
 
-Hull is the ship under [Rudder](https://github.com/Hassleware/rudder): the heavy, local compute that decides what YouTube shows you.
+Hull: Tell Youtube what you came for.
 
-Rudder, a Firefox extension, reads every recommendation before it's shown and runs it through a pipeline of stages. Hull plugs its own stages into that pipeline through Rudder's local API. Then Gemma, running on your own GPU, builds a map of the culture you're exposed to and decides what you see from it:
+<p align="center"><img src="docs/app.png" alt="Hull steering Rudder: your goal, and your culture map with what it blocks in red"></p>
 
-- **No repeats.** A video Rudder has put on screen once never comes back, and neither does a re-upload of it.
-- **A culture graph.** Gemma names every video's topics, from its exact subject up to its field. Topics become nodes, and topics that share videos get linked.
-- **Block and focus by meaning, not keywords.** `block = ["grand theft auto"]` also hides Los Santos and Michael De Santa. `focus = ["bayesian statistics"]` turns YouTube into a study feed: only videos near that topic in the graph get through. Gemma settles the borderline cases using the graph.
+Problem case: Rudder lets you choose what you don't want to see. But a list of words is never long enough. You block "GTA" and Youtube shows you "Los Santos". You hide a video and it comes back next week, or someone uploads it again. A student sits down to learn Bayesian statistics, and the home page fills up with games, cooking and music, because those keep people watching. Youtube does not know what you came for, and it has no way to ask.
 
-```
-YouTube ─▶ Rudder (Firefox) ─▶ Rudder's bridge (127.0.0.1:7833) ◀─▶ Hull ─▶ Ollama (Gemma, on your GPU)
-                                                                      └──▶ data/: hull.db, shown.bloom, thumbs/
-```
+Solution: Hull is the ship under the Rudder. It runs on your own computer, and nothing leaves it. Gemma, a small AI model, reads every video Rudder sees, looks at its picture, and writes down what it is about. Hull puts every video on a map of everything you watch: your culture. Things that belong together sit together, so games end up near games and cooking near cooking. The map grows every day you use it.
 
-## Run it
+<p align="center"><img src="docs/goal.png" alt="Your goal in plain words, turned into topics by Gemma" width="366"></p>
 
-You need:
-- **Rudder**, with its bridge: from the Rudder repo, `cd bridge`, then `python bridge.py`. Open Firefox with Rudder.
-- **[Ollama](https://ollama.com)** with the two models:
+Then you tell Hull what you want, in your own words: "I'm learning Bayesian statistics. Nothing else." Gemma turns that into places on your map, and you can change them before you press Apply. Hull lets through the videos near those places and hides the rest, even the ones you never thought to block. And it never shows you the same video twice, not even a copy uploaded under a new name.
 
-  ```
-  ollama pull gemma4:e4b
-  ollama pull embeddinggemma
-  ```
+<p align="center"><img src="docs/steering.png" alt="Hull is steering Rudder" width="366"> <img src="docs/not-steering.png" alt="Hull is watching, not steering" width="366"></p>
 
-  Gemma takes about 10 GB of graphics memory while loaded. Ollama unloads it after 30 minutes idle.
+You are always the captain. One switch puts Hull in charge of Rudder, and one switch turns Rudder off. Nothing on your screen jumps when you flip them; the change starts with the next videos. Hull says in big letters whether it is steering, and Rudder's own popup shows Hull's numbers too. Close the window and Hull keeps sailing from the tray.
 
-Then start Hull from this folder:
+The reason it works is the same as Rudder's: a viewer who only ever clicks what they came for is a clear signal. Youtube's own algorithm learns from it, and starts bringing more of the right videos by itself. Hull just makes sure that signal is the one you meant to send.
 
-```
-pip install -e .
-python -m hull
-```
+Happy Sailing.
 
-Hull loads the models, joins Rudder's pipeline right after Rudder's `keywords` stage, and shows a **Hull** panel in Rudder's popup.
+---
 
-Stop Hull with Ctrl-C and it takes its stages back out, so YouTube works normally without it. If Hull crashes instead, Rudder hides what Hull would have checked (Rudder is strict) until you start Hull again or run `python -m hull leave`.
+**Start it:**
+1. Install [Rudder](https://github.com/Hassleware/rudder) and start its bridge.
+2. Install [Ollama](https://ollama.com), then `ollama pull gemma4:e4b` and `ollama pull embeddinggemma`.
+3. In this folder, run `pip install -e .`, then `python -m hull`.
 
-| Command | Does |
-|---|---|
-| `python -m hull` | Runs Hull |
-| `python -m hull stats` | Shows what Hull has recorded |
-| `python -m hull leave` | Takes Hull's stages out of Rudder's pipeline |
-
-## Configure it
-
-Everything is in `hull.toml`. Each `[[stage]]` becomes one stage in Rudder's pipeline, in this order:
-
-| Kind | Does |
-|---|---|
-| `repeats` | Hides any video Rudder has put on screen before: by its id (a Bloom filter), or as a copy of a shown one (same title or thumbnail, found by LSH) |
-| `rules` | Your own regular expressions over the title, channel, description and thumbnail text. The first rule that matches decides |
-| `culture` | Has Gemma tag the video into your culture graph, then hides by `block` and `focus` |
-
-A learning harness, for example:
-
-```toml
-[[stage]]
-id = "culture"
-kind = "culture"
-[stage.config]
-focus = ["bayesian statistics"]   # only videos near this in the culture graph
-block = ["grand theft auto"]      # never this, or anything near it
-```
-
-Editing a stage's config makes Rudder judge every video again.
-
-## How it decides
-
-**Repeats.** Rudder reports every video it puts on screen (`WatchShown`). Hull adds each id to a Bloom filter: about 1.8 MB holds a million videos, with a 0.1% chance of calling a new video a repeat. That is the strict side to err on. The filter can't catch a re-upload under a new id, so shown videos' titles and thumbnails also go into two locality-sensitive hash indexes:
-- **Titles:** MinHash over the title's words. A copy shares at least 80% of its words, so "ep 12" and "ep 13" are different videos.
-- **Thumbnails:** a 256-bit dHash. A copy differs by at most 12 bits, which survives resizing and recompression but not a new face on the same template.
-
-Hull's stages ask Rudder to ask again every time YouTube sends a video (`remember: false`). Without that, Rudder would reuse Hull's first answer forever and a repeat would never be caught.
-
-**Culture graph.** For each new video, Gemma (`gemma4:e4b`) sees:
-- the title, channel, description and thumbnail;
-- the text Rudder read from the thumbnail;
-- the known topics nearest to the video, so it reuses their names.
-
-It names 3 to 6 topics, from the subject up to the field. For example, "I spent 100 days in Los Santos" becomes *los santos → grand theft auto v → video games*. Every name is embedded with `embeddinggemma`, and names within 0.94 cosine of a known topic merge into it ("gta" is "grand theft auto"). A video is tagged once. A batch of 12 takes about 4 seconds, well inside Rudder's 25-second limit. Videos not tagged in time stay hidden and are asked about again the next time they come.
-
-**Block and focus.** How near a video is to a topic is the best of its topics' relatedness to it. Relatedness is the larger of:
-- how alike the two topics' meanings are;
-- the same, through a neighbour: the share of this topic's videos that are also on a neighbour topic, times how alike that neighbour is.
-
-So "pymc" becomes near "bayesian statistics" once most videos about pymc are Bayesian.
-
-| | Hidden at or above | Gemma decides |
-|---|---|---|
-| `block` | `block_at` 0.85 | from `block_ask` 0.7 up to `block_at` |
-| `focus` (hidden below) | below `focus_ask` 0.62 | from `focus_ask` up to `focus_at` 0.75 |
-
-In the zone where Gemma decides, it is asked "is *pymc* part of *bayesian statistics*?". It gets the topic's neighbours and some videos about it as context. It answers once per pair, and the answer is kept.
-
-## Data
-
-Everything is in `data/`:
-
-- `hull.db` (SQLite):
-
-  | Table | Holds |
-  |---|---|
-  | `videos` | Every video's record: title, channel, description, published, duration, where it was seen, and fields from Rudder's stages such as thumbnail text |
-  | `outcomes` | What Rudder's pipeline decided each time |
-  | `stage_results` | What each Hull stage said, and how long it took |
-  | `shown`, `shown_prints` | When videos were put on screen; shown titles and thumbnail hashes |
-  | `topics`, `video_topics` | The culture graph: topics with their embeddings, and which videos attest to which |
-  | `judgements` | Gemma's answers to "is X part of Y?" |
-
-- `shown.bloom`: the Bloom filter of shown ids.
-- `thumbs/`: every thumbnail Rudder read.
-
-## Develop
-
-```
-python -m unittest                                   # tests: a fake Rudder and a fake Ollama stand in
-python scripts/sync_proto.py <path to Rudder repo>   # after Rudder's API changes
-```
-
-Rudder's API contract is copied into `hull/rudder/` with its generated stubs; don't edit those by hand. Hull needs a Rudder with `WatchShown` and `remember: false`.
+How it all works: [docs/how-it-works.md](docs/how-it-works.md).
