@@ -8,6 +8,8 @@ from google.protobuf.json_format import MessageToDict
 from hull.config import load
 from hull.link import Hull
 from hull.rudder import rudder_pb2 as pb, rudder_pb2_grpc as rpc
+from hull.bloom import Bloom
+from hull.stages.repeats import Repeats
 from hull.stages.rules import Rules
 from hull.store import Store
 from hull.video import Result, Video
@@ -25,6 +27,28 @@ class TestRules(unittest.TestCase):
     def test_bad_action_refused(self):
         with self.assertRaises(ValueError):
             Rules({"rules": [{"pattern": "x", "action": "maybe"}]}, None)
+
+
+class TestRepeats(unittest.TestCase):
+    def test_bloom_never_forgets_and_rarely_lies(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            b = Bloom(tmp + "/b", capacity=10_000)
+            for i in range(10_000):
+                b.add(f"v{i}")
+            b.save()
+            b = Bloom(tmp + "/b", capacity=10_000)  # from disk
+            self.assertTrue(all(f"v{i}" in b for i in range(10_000)))
+            self.assertLess(sum(f"x{i}" in b for i in range(10_000)), 30)  # ~0.1%
+
+    def test_shown_once_never_again(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(tmp)
+            store.shown(["old"], 1)  # shown before Hull had the stage
+            r = Repeats({}, store)
+            self.assertEqual([x.decision for x in r.decide([Video("old"), Video("new")])], ["hide", "pass"])
+            r.shown(["new"])
+            self.assertEqual(Repeats({}, store).decide([Video("new")])[0].why, "shown before")  # kept on disk
+            store.db.close()
 
 
 class FakeRudder(rpc.RudderServicer):

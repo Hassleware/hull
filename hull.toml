@@ -10,6 +10,11 @@ when_missing = "hide"  # if Hull stops without cleaning up, Rudder hides what Hu
 [data]
 folder = "data"        # hull.db and thumbs/
 
+# A video shown once is never shown again (a Bloom filter of shown ids: data/shown.bloom)
+[[stage]]
+id = "repeats"
+kind = "repeats"
+
 # Your own rules: regular expressions over title, channel, description and thumbnail text. First match decides.
 [[stage]]
 id = "rules"

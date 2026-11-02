@@ -7,6 +7,7 @@
 
 To add one: write it in this folder and add it to KINDS.
 """
+from .repeats import Repeats
 from .rules import Rules
 
-KINDS = {"rules": Rules}
+KINDS = {"repeats": Repeats, "rules": Rules}
