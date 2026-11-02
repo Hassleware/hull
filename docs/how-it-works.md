@@ -54,12 +54,12 @@ Hull checks every video Rudder filters (the home page, the sidebar beside a vide
 - **Your internet culture map.**
   - Every topic is a pin, sized by how many videos you've seen on it, and topics that share videos are joined by lines.
   - Pins sit by meaning and by neighbours, so your internet culture forms clusters.
-  - Behind the map, a colour field: every topic glows blue if your goal shows it, red if it hides it, beige if neither, bigger topics further, and each point blends the glows around it by distance, violet where blue and red meet. Where a new video lands, the colour under it is its neighbours' consensus: it will most likely go the same way.
+  - Each theme has a border, and inside it a colour field: every topic glows blue if your goal shows it, red if it hides it, beige if neither, bigger topics further, and each point leans blue or red by the balance of the glows around it, beige where they're even. Where a new video lands, the colour under it is its neighbours' consensus: it will most likely go the same way.
   - Themes (communities found with Louvain: music, gaming, cooking…) carry one name while small on screen; hover a theme for how much of it is shown and hidden. Zoomed out, each theme shows one name, its most-seen topic and how many topics it holds, and the lines between two themes become one thick line. Zoom in and a theme opens: its topics' names and every line come back.
   - A name is drawn only where it has room: the most-seen go first, and a name that would touch another waits until you zoom in. Every dot is always drawn, and hovering one shows its name.
   - Blue is near your focus, red near what you block, and dashed where Gemma still decides.
   - Wheel to zoom, drag to move, click a pin for its videos and neighbours.
-  - The *growth* slider replays how the map grew.
+  - The *growth* slider replays how the map grew: topics, lines and themes appear in place as they were first seen, light while you drag and in full detail once you stop.
 - **The tray.** Closing the window keeps Hull steering from the tray: a blue hull while it steers, grey when it doesn't. Quit there takes Hull's stages out of Rudder.
 - **In Rudder's popup.** Hull's panel shows whether it's steering, your goal, and its numbers. If Hull stops without cleaning up, Rudder's pipeline marks Hull's stages as "hull not running", striped while they hide what they'd check.
 

@@ -3,7 +3,7 @@ your internet culture map. Hull itself (hull/link.py) runs on a thread of its ow
 Closing the window keeps Hull going in the system tray; Quit there takes Hull's stages out of Rudder and stops.
 
 Styled like Rudder's popup: paper, ink, square 2px borders, monospace, uppercase headings, Rudder blue."""
-import asyncio, html, logging, sys, threading, time
+import asyncio, bisect, html, logging, sys, threading, time
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
@@ -417,7 +417,9 @@ class Window(QMainWindow):
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setRange(0, 1000)
         self.slider.setValue(1000)
-        self.slider.valueChanged.connect(self.redraw)
+        self.slider.valueChanged.connect(self.slide)
+        self.sharpen = QTimer(self, singleShot=True, interval=160, timeout=lambda: self.map.show_time(self.since(), fine=True))
+        self.times = []  # every video's first sighting, sorted: the slider's dates and counts without asking the database
         when.addWidget(self.slider, 1)
         self.when = label("NOW", "lbl")
         self.when.setMinimumWidth(190)
@@ -454,18 +456,29 @@ class Window(QMainWindow):
 
     def since(self):
         """the slider's time (Unix seconds), or None at the right end: now, growing live"""
-        first = self.hull.store.db.execute("select min(first_recorded) from videos").fetchone()[0]
-        if self.slider.value() >= 1000 or not first:
+        if self.slider.value() >= 1000 or not self.times:
             return None
+        first = self.times[0]
         return first + (time.time() - first) * self.slider.value() / 1000
+
+    def show_when(self):
+        t = self.since()
+        n = len(self.times) if t is None else bisect.bisect_right(self.times, t)
+        self.when.setText(("NOW" if t is None else time.strftime("%d %b %H:%M", time.localtime(t)).upper()) + f" · {n} VIDEOS")
+
+    def slide(self):
+        """the growth slider: show the map as it was, light while it moves, in full detail once it stops"""
+        self.show_when()
+        self.map.show_time(self.since(), fine=False)
+        self.sharpen.start()
 
     def redraw(self):
         if not self.internet_culture:
             return
-        t = self.since()
-        n = self.hull.store.db.execute("select count(*) from videos where ? is null or first_recorded <= ?", (t, t)).fetchone()[0]
-        self.when.setText(("NOW" if t is None else time.strftime("%d %b %H:%M", time.localtime(t)).upper()) + f" · {n} VIDEOS")
-        self.map.draw(self.internet_culture, t)
+        self.times = [r[0] for r in self.hull.store.db.execute("select first_recorded from videos where first_recorded is not null order by 1")]
+        self.show_when()
+        self.map.at = self.since()
+        self.map.draw(self.internet_culture)
 
     def pick(self, name):
         """a topic's details: how often, what the goal does with it, its neighbours, its videos"""

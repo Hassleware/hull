@@ -19,7 +19,7 @@ import math
 
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QImage, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QImage, QPainter, QPainterPath, QPainterPathStroker, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import (QGraphicsEllipseItem, QGraphicsItem, QGraphicsLineItem, QGraphicsPathItem, QGraphicsPixmapItem, QGraphicsRectItem,
                                QGraphicsScene, QGraphicsSimpleTextItem, QGraphicsView)
 
@@ -29,6 +29,7 @@ MOST = 300  # topics drawn: the most-seen ones
 OPEN_PX = 260  # a community opens (its topics' names come out) once it's this big on screen
 GAP = 4  # px kept between names
 GLOW = 0.04  # a topic's glow reaches about this share of the map's width
+BORDER = 0.03  # a theme's border sits this share of the map's width out from its topics
 
 
 def flatten(vecs):
@@ -145,20 +146,38 @@ def hull_of(points):
     return lower[:-1] + upper[:-1]
 
 
-def read(graph, since=None):
-    """the most-seen topics (seen first by `since`, Unix seconds, if given) and the links among them"""
+def blob(points, pad):
+    """a theme's border: the hull of its topics, padded by pad all round (round corners); a lone topic is a circle"""
+    path = QPainterPath()
+    pts = hull_of(points)
+    if len(pts) == 1:
+        path.addEllipse(QPointF(*pts[0]), pad, pad)
+        return path
+    path.moveTo(QPointF(*pts[0]))
+    for q in pts[1:]:
+        path.lineTo(QPointF(*q))
+    if len(pts) > 2:
+        path.closeSubpath()
+    stroker = QPainterPathStroker()
+    stroker.setWidth(2 * pad)
+    stroker.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    stroker.setCapStyle(Qt.PenCapStyle.RoundCap)
+    return stroker.createStroke(path).united(path).simplified()
+
+
+def read(graph):
+    """the most-seen topics, the links among them, and when each was first seen (Unix seconds), for the growth slider"""
     db = graph.db
-    rows = db.execute("""select t.name, count(*) from video_topics vt join topics t on t.id = vt.topic_id
-                         left join videos v on v.id = vt.video_id where ? is null or coalesce(v.first_recorded, 0) <= ?
-                         group by t.id order by 2 desc limit ?""", (since, since, MOST)).fetchall()
+    rows = db.execute("""select t.name, count(*), min(coalesce(v.first_recorded, 0)) from video_topics vt join topics t on t.id = vt.topic_id
+                         left join videos v on v.id = vt.video_id group by t.id order by 2 desc limit ?""", (MOST,)).fetchall()
     names = [r[0] for r in rows]
     at = {n: i for i, n in enumerate(names)}
-    links = db.execute("""select ta.name, tb.name, count(*) from video_topics a join video_topics b on a.video_id = b.video_id and a.topic_id < b.topic_id
+    links = db.execute("""select ta.name, tb.name, count(*), min(coalesce(v.first_recorded, 0)) from video_topics a
+                          join video_topics b on a.video_id = b.video_id and a.topic_id < b.topic_id
                           join topics ta on ta.id = a.topic_id join topics tb on tb.id = b.topic_id
-                          left join videos v on v.id = a.video_id where ? is null or coalesce(v.first_recorded, 0) <= ?
-                          group by a.topic_id, b.topic_id""", (since, since)).fetchall()
-    edges = [(at[a], at[b], c) for a, b, c in links if a in at and b in at]
-    return names, [r[1] for r in rows], edges
+                          left join videos v on v.id = a.video_id group by a.topic_id, b.topic_id""").fetchall()
+    kept = [(at[a], at[b], c, t) for a, b, c, t in links if a in at and b in at]
+    return names, [r[1] for r in rows], [r[2] for r in rows], [(i, j, c) for i, j, c, _ in kept], [t for *_, t in kept]
 
 
 def theme_share(marks, focused):
@@ -177,22 +196,23 @@ def rgb(hexcolor):
 def colour_field(xy, sides, weights, box, size, sigma):
     """the map's colour, worked out at every point of a grid over box (x, y, w, h) at size (columns, rows): each topic
     glows (gaussian, sigma wide, stronger the more videos it has), blue if the goal shows it (+1), red if it hides it
-    (-1), beige if neither (0). A point takes the blend of the glows around it: its colour is their colours mixed by
-    weight (violet where blue and red meet), its strength how much glow reaches it, fading to paper where there are no
-    topics. → (rows, columns, 4) RGBA bytes"""
+    (-1), beige if neither (0). A point takes the blend of the glows around it: its colour leans blue or red by their
+    weighted balance, beige where they're even; its strength is how much glow reaches it. → (rows, columns, 4) RGBA bytes"""
     cols, rows = size
     gx = box[0] + (np.arange(cols) + 0.5) * box[2] / cols
     gy = box[1] + (np.arange(rows) + 0.5) * box[3] / rows
-    paper, shade, blue, red = rgb(PAPER), rgb(SHADE), rgb(BLUE), rgb(RED)
     density = np.zeros((rows, cols))
-    mixed = np.zeros((rows, cols, 3))
+    balance = np.zeros((rows, cols))
     for (x, y), s, w in zip(xy, sides, weights):  # separable gaussian: an outer product per topic
         g = w * np.outer(np.exp(-((gy - y) / sigma) ** 2 / 2), np.exp(-((gx - x) / sigma) ** 2 / 2))
         density += g
-        mixed += g[..., None] * (blue if s > 0 else red if s < 0 else shade)
-    colour = mixed / np.maximum(density, 1e-9)[..., None]  # contested ground mixes: violet between blue and red
+        balance += s * g
+    lean = balance / np.maximum(density, 1e-9)  # -1 hidden … +1 shown; where they're even, 0: beige
     strength = 1 - np.exp(-density / 1.2)  # how much there is here
-    out = paper + (colour - paper) * (strength[..., None] * 0.8)
+    paper, shade, blue, red = rgb(PAPER), rgb(SHADE), rgb(BLUE), rgb(RED)
+    tone = np.where(lean[..., None] >= 0, blue, red)
+    colour = shade + (tone - shade) * (np.abs(lean)[..., None] * 0.85)
+    out = paper + (colour - paper) * (strength[..., None] * 0.85)
     return np.dstack([np.clip(out, 0, 255).astype(np.uint8), np.full((rows, cols), 255, np.uint8)])
 
 
@@ -220,12 +240,13 @@ class InternetCultureMap(QGraphicsView):
         self.setBackgroundBrush(QColor(PAPER))
         self.setStyleSheet(f"border: 2px solid {INK};")
         self.positions = {}  # topic → (x, y), kept between redraws so the map doesn't jump
-        self.key, self.fitted, self.selected = None, False, None
+        self.key, self.fitted, self.selected, self.at = None, False, None, None
         self.parts = None  # what apply_detail shows and hides
 
-    def draw(self, internet_culture, since=None):
-        """(re)draw from the internet culture stage's graph; marks: topic → "focus" | "block" | "ask" | None"""
-        names, counts, edges = read(internet_culture.graph, since)
+    def draw(self, internet_culture):
+        """(re)draw everything from the internet culture stage's graph; show_time then shows the map as it was at any
+        moment, without drawing again. marks: topic → "focus" | "block" | "ask" | None"""
+        names, counts, born, edges, edge_born = read(internet_culture.graph)
         marks = internet_culture.marks(names)
         ready = marks is not None  # the goal's topics are embedded: colours are known
         marks = marks or {}
@@ -257,53 +278,48 @@ class InternetCultureMap(QGraphicsView):
         members = {}
         for i, c in enumerate(group):
             members.setdefault(c, []).append(i)
-        big = {c for c, ms in members.items() if len(ms) >= 4}  # communities that get a shape and a name
+        big = {c for c, ms in members.items() if len(ms) >= 4}  # communities that get a name
 
-        # community shapes: the hull, filled, with a wide round outline in the same shade (padding that stays the
-        # same on screen)
+        # the colour: a field (colour_field) seen only inside the themes' borders, one border per theme, drawn on top
         focused = bool(internet_culture.focus) and ready
-        # the colour field behind everything: how the goal decides each part of the map, flowing between topics
         side = {"focus": 1.0, "block": -1.0}
-        sides = [side.get(marks.get(n), -1.0 if focused and marks.get(n) is None else 0.0) for n in names]
+        sides = np.array([side.get(marks.get(n), -1.0 if focused and marks.get(n) is None else 0.0) for n in names])
         span_xy = xy.max(0) - xy.min(0)
-        pad = 0.6 * float(span_xy.max())  # well past the topics, so the field never shows an edge
+        pad = 0.6 * float(span_xy.max())
         box = QRectF(*xy.min(0), *span_xy).adjusted(-pad, -pad, pad, pad)
-        cols = 520
-        rows = max(1, int(cols * box.height() / max(box.width(), 1)))
-        spread = GLOW * float(span_xy.max())  # how far a topic's glow reaches, relative to the map
-        pixels = colour_field(xy, sides, [math.sqrt(c / most) + 0.3 for c in counts], (box.x(), box.y(), box.width(), box.height()), (cols, rows), spread)
-        self._pixels = np.ascontiguousarray(pixels)  # kept alive: the image reads from it
-        image = QImage(self._pixels.data, cols, rows, cols * 4, QImage.Format.Format_RGBA8888)
-        field = QGraphicsPixmapItem(QPixmap.fromImage(image))
-        field.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
-        field.setPos(box.topLeft())
-        field.setScale(box.width() / cols)
-        field.setZValue(-5)
-        scene.addItem(field)
-        # each theme: an invisible shape, for its numbers on hover
-        for c in big:
-            pts = hull_of(xy[members[c]])
-            path = QPainterPath()
-            path.addPolygon(QPolygonF([QPointF(*p) for p in pts]))
-            path.closeSubpath()
-            shape = QGraphicsPathItem(path)
-            shown, hidden = theme_share([marks.get(names[i]) for i in members[c]], focused)
-            shape.setBrush(QBrush(QColor(0, 0, 0, 1)))  # all but invisible, still under the pointer
-            shape.setPen(QPen(Qt.PenStyle.NoPen))
-            n, top = len(members[c]), names[max(members[c], key=lambda i: counts[i])]
-            likely = ("shown" if shown > hidden else "hidden") if max(shown, hidden) >= 0.5 else "decided by its own topics"
-            shape.setToolTip(f"{top}: {round(shown * n)} of {n} topics shown, {round(hidden * n)} hidden.\n"
-                             f"A new video like these will most likely be {likely}.")
-            shape.setZValue(-3 - n / 1000)  # bigger themes further back, so a small theme on top of one stays seen
-            scene.addItem(shape)
+        border = BORDER * float(span_xy.max())  # how far a border sits out from its topics
+        blobs = {}
+        for c, ms in members.items():
+            inside_ = QGraphicsPathItem()  # clips the field to the theme
+            inside_.setFlag(QGraphicsItem.GraphicsItemFlag.ItemClipsChildrenToShape)
+            inside_.setPen(QPen(Qt.PenStyle.NoPen))
+            inside_.setZValue(-5)
+            fill = QGraphicsPixmapItem(inside_)
+            fill.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
+            fill.setPos(box.topLeft())
+            line = QGraphicsPathItem()  # the border
+            line.setPen(cosmetic(INK, 1.3, 120))
+            line.setBrush(QBrush(QColor(0, 0, 0, 1)))  # all but invisible, still under the pointer for its numbers
+            line.setZValue(-4 - len(ms) / 1000)  # bigger themes further back
+            if c in big:
+                shown, hidden = theme_share([marks.get(names[i]) for i in ms], focused)
+                n, top = len(ms), names[max(ms, key=lambda i: counts[i])]
+                likely = ("shown" if shown > hidden else "hidden") if max(shown, hidden) >= 0.5 else "decided by its own topics"
+                line.setToolTip(f"{top}: {round(shown * n)} of {n} topics shown, {round(hidden * n)} hidden.\n"
+                                f"A new video like these will most likely be {likely}.")
+            scene.addItem(inside_)
+            scene.addItem(line)
+            blobs[c] = (inside_, fill, line)
+        self.field = dict(sides=sides, weights=np.array([math.sqrt(c / most) + 0.3 for c in counts]), box=box,
+                          spread=GLOW * float(span_xy.max()), border=border, blobs=blobs, members=members, shown_at=None)
 
         # lines: each one, and one per pair of communities for when they're small on screen
         inside, across, between = {}, [], {}
-        for i, j, w in edges:
+        for (i, j, w), when in zip(edges, edge_born):
             line = QGraphicsLineItem(*xy[i], *xy[j])
             line.setZValue(-1)
             scene.addItem(line)
-            line.weight = w
+            line.weight, line.born = w, when
             if group[i] == group[j]:
                 inside.setdefault(group[i], []).append(line)
             else:
@@ -320,7 +336,7 @@ class InternetCultureMap(QGraphicsView):
             bundles.append((line, a, b))
 
         # dots, always drawn, and a name for each (shown by apply_detail where it fits)
-        names_of, font = {}, QFont("Cascadia Mono", 9)
+        names_of, font, dots = {}, QFont("Cascadia Mono", 9), []
         for i, (name, c) in enumerate(zip(names, counts)):
             r = 3 + 9 * math.sqrt(c / most)
             mark = marks.get(name)
@@ -335,6 +351,7 @@ class InternetCultureMap(QGraphicsView):
             dot.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)  # pins: same size at any zoom
             dot.setZValue(1)
             scene.addItem(dot)
+            dots.append(dot)
             t = QGraphicsSimpleTextItem(name, dot)
             t.setFont(QFont("Cascadia Mono", 9, QFont.Weight.Bold if c > most / 3 or name == self.selected else QFont.Weight.Normal))
             t.setPos(r + 3, -8)
@@ -363,11 +380,47 @@ class InternetCultureMap(QGraphicsView):
         lows = {c: xy[ms].min(0) for c, ms in members.items()}
         highs = {c: xy[ms].max(0) for c, ms in members.items()}
         self.parts = dict(names=names, counts=counts, group=group, xy=xy, middles=middles, lows=lows, highs=highs, big=big, span=span, inside=inside, across=across,
-                          bundles=bundles, names_of=names_of, titles=titles, font=QFontMetricsF(font))
+                          bundles=bundles, names_of=names_of, titles=titles, font=QFontMetricsF(font), dots=dots, born=np.array(born, float),
+                          seen=np.ones(len(names), bool))
         scene.setSceneRect(QRectF(*xy.min(0), *(xy.max(0) - xy.min(0))).adjusted(-80, -60, 200, 60))  # room for names
         if not self.fitted:
             self.fitInView(scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
             self.fitted = True
+        self.show_time(self.at, fine=True)
+
+    def show_time(self, at=None, fine=True):
+        """the map as it was at a moment (Unix seconds; None: now): what existed then is shown, the rest hidden, nothing
+        drawn again. fine: the colour at full detail and the borders fitted to what's shown; while the growth slider
+        moves, a light version keeps it smooth"""
+        self.at = at
+        p = self.parts
+        if not p:
+            return
+        seen = p["born"] <= at if at is not None else np.ones(len(p["names"]), bool)
+        p["seen"] = seen
+        for dot, s in zip(p["dots"], seen):
+            dot.setVisible(bool(s))
+        for line in [l for ls in p["inside"].values() for l in ls] + [l for l, *_ in p["across"]]:
+            line.born_ok = at is None or line.born <= at
+        f = self.field
+        cols = 520 if fine else 150
+        box = f["box"]
+        rows = max(1, int(cols * box.height() / max(box.width(), 1)))
+        pixels = colour_field(p["xy"][seen], f["sides"][seen], f["weights"][seen], (box.x(), box.y(), box.width(), box.height()), (cols, rows), f["spread"])
+        self._pixels = np.ascontiguousarray(pixels)  # kept alive while the image is made
+        pixmap = QPixmap.fromImage(QImage(self._pixels.data, cols, rows, cols * 4, QImage.Format.Format_RGBA8888))
+        for c, (inside_, fill, line) in f["blobs"].items():
+            now = [i for i in f["members"][c] if seen[i]]
+            for item in (inside_, line):
+                item.setVisible(bool(now))
+            if not now:
+                continue
+            if fine or inside_.path().isEmpty():  # borders fitted to what's shown; while sliding, the last ones stay
+                shape = blob(p["xy"][now], f["border"])
+                inside_.setPath(shape)
+                line.setPath(shape)
+            fill.setPixmap(pixmap)
+            fill.setScale(box.width() / cols)
         self.apply_detail()
 
     def apply_detail(self):
@@ -377,21 +430,24 @@ class InternetCultureMap(QGraphicsView):
         if not p:
             return
         zoom = self.transform().m11()
-        closed = {c for c in p["big"] if p["span"][c] * zoom < OPEN_PX}
+        seen = p["seen"]
+        alive = {p["group"][i] for i in range(len(seen)) if seen[i]}  # themes with something shown at this moment
+        closed = {c for c in p["big"] if p["span"][c] * zoom < OPEN_PX and c in alive}
         for c, lines in p["inside"].items():
             for line in lines:
+                line.setVisible(getattr(line, "born_ok", True))
                 line.setPen(cosmetic(INK, 1 if c in closed else 1 + 0.5 * math.log1p(line.weight), 45 if c in closed else min(190, 70 + 30 * line.weight)))
         for line, a, b in p["across"]:
-            line.setVisible(a not in closed or b not in closed)  # an open community shows its own lines
+            line.setVisible((a not in closed or b not in closed) and getattr(line, "born_ok", True))  # an open community shows its own lines
             line.setPen(cosmetic(INK, 1 + 0.5 * math.log1p(line.weight), min(170, 50 + 30 * line.weight)))
         for line, a, b in p["bundles"]:
-            line.setVisible(a in closed and b in closed)  # between two closed communities: one line
+            line.setVisible(a in closed and b in closed)  # between two closed communities: one line (both have something shown)
 
         # names, most important first; each must keep GAP px from every name already placed
         size = {c: p["group"].count(c) for c in closed}
         want = [(1e9 + size[c], "title", c) for c in closed]  # bigger themes name themselves first
         want += [(p["counts"][i] + (1e8 if p["names"][i] == self.selected else 0), "name", i)
-                 for i in range(len(p["names"])) if p["group"][i] not in closed]
+                 for i in range(len(p["names"])) if p["group"][i] not in closed and seen[i]]
         placed, view = [], self.viewport().rect()
         for t, _ in p["names_of"].values():
             t.setVisible(False)
