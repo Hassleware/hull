@@ -3,6 +3,7 @@ import argparse, asyncio, json, logging
 
 from hull.config import load
 from hull.link import Hull
+from hull.settings import Settings
 from hull.store import Store
 
 
@@ -23,7 +24,7 @@ def main():
         print(json.dumps(store.stats(), indent=2, ensure_ascii=False))
         return
     try:
-        asyncio.run(Hull(cfg, store).main())
+        asyncio.run(Hull(cfg, store, Settings(cfg["data"]["folder"])).main())
     except KeyboardInterrupt:
         pass
 

@@ -116,6 +116,9 @@ class Culture:
             known[vid] = f.result() if f.done() and not f.exception() else None
         return [known[v.id] for v in videos]
 
+    def set_goal(self, focus, block):
+        self.focus, self.block = [t.lower() for t in focus], [t.lower() for t in block]
+
     def anchors(self, names):
         missing = [n for n in names if n not in self.anchor_vecs]
         if missing or not names:

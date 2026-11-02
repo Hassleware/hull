@@ -21,6 +21,12 @@ class Empty(_message.Message):
     __slots__ = ()
     def __init__(self) -> None: ...
 
+class Enabled(_message.Message):
+    __slots__ = ("enabled",)
+    ENABLED_FIELD_NUMBER: _ClassVar[int]
+    enabled: bool
+    def __init__(self, enabled: _Optional[bool] = ...) -> None: ...
+
 class Video(_message.Message):
     __slots__ = ("id", "title", "channel", "description", "published", "duration_seconds", "seen_at_ms", "thumbnail", "thumbnail_type", "thumbnail_url", "source", "short", "fields")
     class FieldsEntry(_message.Message):

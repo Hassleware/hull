@@ -14,6 +14,7 @@ from hull.graph import PREFIX
 from hull.stages.culture import Culture
 from hull.stages.repeats import Repeats
 from hull.stages.rules import Rules
+from hull.settings import Settings
 from hull.store import Store
 from hull.video import Result, Video
 
@@ -197,20 +198,41 @@ class FakeRudder(rpc.RudderServicer):
     def __init__(self):
         self.stages = [pb.Stage(id=i, kind=i) for i in ("your-clicks", "keywords", "learned", "thumbnail-text")]
         self.apps, self.panels, self.replies, self.answered = set(), [], asyncio.Queue(), False
+        self.enabled, self.changed = True, asyncio.Event()
+
+    def state(self):
+        return pb.State(connected=True, enabled=self.enabled, apps=sorted(self.apps), stages=[s.id for s in self.stages])
+
+    def touch(self):
+        self.changed.set()
+        self.changed = asyncio.Event()
 
     async def GetState(self, request, context):
-        return pb.State(connected=True, apps=sorted(self.apps), stages=[s.id for s in self.stages])
+        return self.state()
+
+    async def WatchState(self, request, context):
+        while True:
+            changed = self.changed
+            yield self.state()
+            await changed.wait()
+
+    async def SetEnabled(self, request, context):
+        self.enabled = request.enabled
+        self.touch()
+        return self.state()
 
     async def GetPipeline(self, request, context):
         return pb.Pipeline(stages=self.stages)
 
     async def SetPipeline(self, request, context):
         self.stages = list(request.stages) or [pb.Stage(id=i, kind=i) for i in ("your-clicks", "keywords", "learned", "thumbnail-text")]
+        self.touch()
         return pb.Pipeline(stages=self.stages)
 
     async def Stage(self, requests, context):
         hello = await anext(requests)
         self.apps.add(hello.hello.name)
+        self.touch()
         while not any(s.kind == "app" for s in self.stages):  # wait for Hull to join the pipeline
             await asyncio.sleep(0.05)
         mine = next(s for s in self.stages if s.kind == "app")
@@ -273,6 +295,48 @@ class TestHullWithRudder(unittest.IsolatedAsyncioTestCase):
                 await task
             self.assertEqual([s.id for s in fake.stages], ["your-clicks", "keywords", "learned", "thumbnail-text"])
             self.assertEqual(len(fake.panels[-1].blocks), 0)
+            store.db.close()
+        await server.stop(None)
+
+    async def test_switches_and_goals(self):
+        fake, server = FakeRudder(), grpc.aio.server()
+        rpc.add_RudderServicer_to_server(fake, server)
+        port = server.add_insecure_port("127.0.0.1:0")
+        await server.start()
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = load(tmp + "/none.toml")
+            cfg["rudder"]["address"] = f"127.0.0.1:{port}"
+            cfg["stage"] = [{"id": "rules", "kind": "rules", "config": RULES}]
+            store, settings = Store(tmp), Settings(tmp)
+            hull, seen = Hull(cfg, store, settings), []
+            hull.listeners.append(seen.append)
+            task = asyncio.create_task(hull.main())
+
+            async def until(ok):
+                for _ in range(100):
+                    if ok():
+                        return
+                    await asyncio.sleep(0.05)
+                self.fail("timed out")
+
+            await until(lambda: hull.status["steering"] and hull.status["filtering"])
+            hull.set_steering(False)  # out of the pipeline, still connected
+            await until(lambda: not hull.status["steering"])
+            self.assertNotIn("hull-rules", [s.id for s in fake.stages])
+            self.assertEqual((hull.status["rudder"], Settings(tmp).get("steering")), (True, False))
+            await until(lambda: "not steering" in fake.panels[-1].blocks[0].text)
+            hull.set_filtering(False)  # Rudder's own switch
+            await until(lambda: not hull.status["filtering"])
+            self.assertFalse(fake.enabled)
+            hull.set_steering(True)
+            await until(lambda: hull.status["steering"])
+            hull.set_goal({"text": "learn stats", "focus": ["statistics"], "block": []})
+            self.assertEqual(Settings(tmp).get("goal")["focus"], ["statistics"])
+            await until(lambda: "Goal: learn stats" in fake.panels[-1].blocks[0].text)
+            self.assertTrue(any(s["steering"] is False for s in seen))  # the app heard about the switch
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
             store.db.close()
         await server.stop(None)
 

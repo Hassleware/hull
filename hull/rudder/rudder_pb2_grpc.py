@@ -49,6 +49,11 @@ class RudderStub:
                 request_serializer=hull_dot_rudder_dot_rudder__pb2.Filters.SerializeToString,
                 response_deserializer=hull_dot_rudder_dot_rudder__pb2.State.FromString,
                 _registered_method=True)
+        self.SetEnabled = channel.unary_unary(
+                '/rudder.v1.Rudder/SetEnabled',
+                request_serializer=hull_dot_rudder_dot_rudder__pb2.Enabled.SerializeToString,
+                response_deserializer=hull_dot_rudder_dot_rudder__pb2.State.FromString,
+                _registered_method=True)
         self.GetPipeline = channel.unary_unary(
                 '/rudder.v1.Rudder/GetPipeline',
                 request_serializer=hull_dot_rudder_dot_rudder__pb2.Empty.SerializeToString,
@@ -121,6 +126,13 @@ class RudderServicer:
 
     def SetFilters(self, request, context):
         """Replace the popup's filter list (what the "keywords" and "thumbnail-text" stages use unless configured otherwise).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SetEnabled(self, request, context):
+        """Switch Rudder's filtering on or off (the popup's switch). Videos on screen stay put; the change applies to the rest.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -221,6 +233,11 @@ def add_RudderServicer_to_server(servicer, server):
             'SetFilters': grpc.unary_unary_rpc_method_handler(
                     servicer.SetFilters,
                     request_deserializer=hull_dot_rudder_dot_rudder__pb2.Filters.FromString,
+                    response_serializer=hull_dot_rudder_dot_rudder__pb2.State.SerializeToString,
+            ),
+            'SetEnabled': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetEnabled,
+                    request_deserializer=hull_dot_rudder_dot_rudder__pb2.Enabled.FromString,
                     response_serializer=hull_dot_rudder_dot_rudder__pb2.State.SerializeToString,
             ),
             'GetPipeline': grpc.unary_unary_rpc_method_handler(
@@ -354,6 +371,33 @@ class Rudder:
             target,
             '/rudder.v1.Rudder/SetFilters',
             hull_dot_rudder_dot_rudder__pb2.Filters.SerializeToString,
+            hull_dot_rudder_dot_rudder__pb2.State.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SetEnabled(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/rudder.v1.Rudder/SetEnabled',
+            hull_dot_rudder_dot_rudder__pb2.Enabled.SerializeToString,
             hull_dot_rudder_dot_rudder__pb2.State.FromString,
             options,
             channel_credentials,

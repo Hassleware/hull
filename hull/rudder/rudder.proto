@@ -14,6 +14,8 @@ service Rudder {
   rpc WatchState(Empty) returns (stream State);
   // Replace the popup's filter list (what the "keywords" and "thumbnail-text" stages use unless configured otherwise).
   rpc SetFilters(Filters) returns (State);
+  // Switch Rudder's filtering on or off (the popup's switch). Videos on screen stay put; the change applies to the rest.
+  rpc SetEnabled(Enabled) returns (State);
 
   // ---- the filtering pipeline ----
   // The stages in order, and the kinds a stage can be.
@@ -50,6 +52,10 @@ service Rudder {
 }
 
 message Empty {}
+
+message Enabled {
+  bool enabled = 1;
+}
 
 // ---- Rudder's data contract: every video, everywhere in the API ----
 
