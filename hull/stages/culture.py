@@ -116,6 +116,26 @@ class Culture:
             known[vid] = f.result() if f.done() and not f.exception() else None
         return [known[v.id] for v in videos]
 
+    def marks(self, names):
+        """what the goal does with each topic, for the culture map: "focus", "block", "ask" (Gemma hasn't decided yet) or
+        None. Only what's known: it never asks Gemma or embeds anything new."""
+        if any(n not in self.anchor_vecs for n in self.focus + self.block):
+            return {}
+        out = {}
+        for name in names:
+            for anchors, at, ask, mark in ((self.block, self.block_at, self.block_ask, "block"), (self.focus, self.focus_at, self.focus_ask, "focus")):
+                if not anchors or name not in self.graph.index:
+                    continue
+                s, _, anchor, _ = self.graph.nearness([name], *self.anchors(anchors))
+                if s >= at:
+                    out[name] = mark
+                elif s >= ask:
+                    v = self.verdicts.get((name, anchor))
+                    out[name] = "ask" if v is None else (mark if v[0] else None)
+                if out.get(name):
+                    break
+        return out
+
     def set_goal(self, focus, block):
         self.focus, self.block = [t.lower() for t in focus], [t.lower() for t in block]
 

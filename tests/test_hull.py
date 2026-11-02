@@ -356,5 +356,16 @@ class TestHullWithRudder(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((r.decision, r.why), (pb.HIDE, "hull broken failed: out of memory"))
 
 
+
+class TestMapLayout(unittest.TestCase):
+    def test_linked_topics_end_up_closer(self):
+        from hull.mapview import layout
+        start = np.random.default_rng(1).normal(0, 0.5, (6, 2))
+        pos = layout(start, [(0, 1, 5), (1, 2, 5), (3, 4, 5)])
+        d = lambda i, j: np.linalg.norm(pos[i] - pos[j])
+        self.assertLess(d(0, 1), d(0, 4))
+        self.assertLess(d(3, 4), d(3, 1))
+
+
 if __name__ == "__main__":
     unittest.main()

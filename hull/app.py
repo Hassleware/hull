@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (QApplication, QFrame, QGridLayout, QHBoxLayout, Q
                                QSystemTrayIcon, QVBoxLayout, QWidget)
 
 from hull.link import Hull
+from hull.mapview import CultureMap
 
 ASSETS = Path(__file__).parent / "assets"
 PAPER, INK, FAINT, BLUE, RED = "#f2ede1", "#111111", "#d9d2c1", "#5BB8F0", "#E5484D"
@@ -187,6 +188,24 @@ class Window(QMainWindow):
         holder.setFixedWidth(360)
         self.columns.addWidget(holder)
 
+        main = QVBoxLayout()
+        main.setSpacing(6)
+        head = QHBoxLayout()
+        head.addWidget(label("YOUR CULTURE MAP", "h2"))
+        head.addStretch(1)
+        self.legend = label("● near your focus   ● near what you block   ◌ Gemma decides", "lbl")
+        self.legend.setTextFormat(Qt.TextFormat.RichText)
+        self.legend.setText(f'<span style="color:{BLUE}">●</span> NEAR YOUR FOCUS &nbsp; <span style="color:{RED}">●</span> NEAR WHAT YOU BLOCK &nbsp; ◌ GEMMA DECIDES')
+        head.addWidget(self.legend)
+        main.addLayout(head)
+        self.culture = next((st for st in hull.stages.values() if hasattr(st, "graph")), None)
+        self.map = CultureMap()
+        main.addWidget(self.map, 1)
+        self.columns.addLayout(main, 1)
+        self.map_timer = QTimer(self, interval=10000, timeout=self.redraw)
+        self.map_timer.start()
+        QTimer.singleShot(0, self.redraw)
+
         engine.status.connect(self.show_status)
         self.show_status(dict(hull.status))
         self.timer = QTimer(self, interval=2000, timeout=self.refresh)
@@ -209,6 +228,10 @@ class Window(QMainWindow):
         self.numbers.set("recorded", s["videos"])
         self.numbers.set("shown", s["shown"])
         self.numbers.set("hull hid", sum(s["hid_by_stage"].values()))
+
+    def redraw(self):
+        if self.culture:
+            self.map.draw(self.culture)
 
     def closeEvent(self, e):  # keep steering from the tray
         e.ignore()
