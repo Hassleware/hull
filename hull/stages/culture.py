@@ -39,6 +39,15 @@ ASK = """On a viewer's map of the topics of the YouTube videos they see, is "{to
 Topics that share videos with "{topic}" on the map: {neighbours}
 Videos about "{topic}": {titles}
 Answer part_of, and why in a few words."""
+GOAL_SCHEMA = {"type": "object", "properties": {
+    "focus": {"type": "array", "items": {"type": "string"}, "maxItems": 8},
+    "block": {"type": "array", "items": {"type": "string"}, "maxItems": 8}}, "required": ["focus", "block"]}
+GOAL = """A viewer says what they want YouTube for. Turn it into topics for their filter:
+- focus: only if they want nothing but certain subjects (they say "only", "just", "nothing else"): those subjects. Otherwise focus is empty: liking something is not wanting only it;
+- block: subjects they never want to see.
+Short lowercase noun phrases naming the subject or field itself, like "bayesian statistics" or "grand theft auto". Reuse these topics from their map, word for word, when one fits: {known}
+
+The viewer: {text}"""
 PROMPT = """Name this YouTube video's topics: 3 to 6 short lowercase noun phrases, from the most specific (the exact subject: the game, show, person, technique or idea) up to its broad field (such as "video games", "statistics", "cooking", "music").
 Name subjects, not formats: in "100 days in Los Santos" the subject is the game Los Santos belongs to (grand theft auto v), not "100 days challenge". Name the franchise or field a place, character or term belongs to. Use the thumbnail too.
 Topics already on this viewer's map, to reuse word for word when one fits: {known}
@@ -115,6 +124,13 @@ class Culture:
         for vid, f in todo.items():
             known[vid] = f.result() if f.done() and not f.exception() else None
         return [known[v.id] for v in videos]
+
+    def draft_goal(self, text):
+        """a goal in the viewer's words → {"text", "focus": [...], "block": [...]}, drafted by Gemma with the map's names"""
+        known = ", ".join(self.graph.nearest(self.graph.embed([text])[0], 20)) or "(none yet)"
+        r = self.ollama.json(self.model, GOAL.format(known=known, text=text), GOAL_SCHEMA, system=SYSTEM)
+        clean = lambda xs: list(dict.fromkeys(x.strip().lower() for x in xs if x.strip()))
+        return {"text": text.strip(), "focus": clean(r["focus"]), "block": clean(r["block"])}
 
     def marks(self, names):
         """what the goal does with each topic, for the culture map: "focus", "block", "ask" (Gemma hasn't decided yet) or

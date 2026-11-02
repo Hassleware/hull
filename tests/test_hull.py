@@ -99,6 +99,8 @@ class FakeOllama:
     def json(self, model, prompt, schema, images=(), system=""):
         time.sleep(self.delay)
         self.calls += 1
+        if "focus" in schema["properties"]:
+            return {"focus": ["Statistics ", "statistics"], "block": ["video games"]}
         if "part_of" in schema["properties"]:
             self.asked = prompt
             return {"part_of": prompt.startswith('On a viewer\'s map of the topics of the YouTube videos they see, is "video games"'), "why": "it's a game"}
@@ -332,6 +334,7 @@ class TestHullWithRudder(unittest.IsolatedAsyncioTestCase):
             await until(lambda: hull.status["steering"])
             hull.set_goal({"text": "learn stats", "focus": ["statistics"], "block": []})
             self.assertEqual(Settings(tmp).get("goal")["focus"], ["statistics"])
+            Hull(cfg, store, Settings(tmp))  # a restart with a saved goal
             await until(lambda: "Goal: learn stats" in fake.panels[-1].blocks[0].text)
             self.assertTrue(any(s["steering"] is False for s in seen))  # the app heard about the switch
             task.cancel()
@@ -355,6 +358,15 @@ class TestHullWithRudder(unittest.IsolatedAsyncioTestCase):
         r = (await out.get()).reply.results[0]
         self.assertEqual((r.decision, r.why), (pb.HIDE, "hull broken failed: out of memory"))
 
+
+
+class TestGoal(unittest.TestCase):
+    def test_gemma_drafts_a_goal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(tmp)
+            c = culture(store, FakeOllama())
+            self.assertEqual(c.draft_goal(" learn stats, no games "), {"text": "learn stats, no games", "focus": ["statistics"], "block": ["video games"]})
+            store.db.close()
 
 
 class TestMapLayout(unittest.TestCase):

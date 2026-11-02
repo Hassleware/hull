@@ -9,8 +9,8 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtSvgWidgets import QSvgWidget
-from PySide6.QtWidgets import (QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow, QMenu, QPushButton,
-                               QSlider, QSystemTrayIcon, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu,
+                               QPlainTextEdit, QPushButton, QScrollArea, QSlider, QSystemTrayIcon, QVBoxLayout, QWidget)
 
 from hull.link import Hull
 from hull.mapview import CultureMap
@@ -31,7 +31,13 @@ QPushButton:hover {{ background: {INK}; color: {PAPER}; }}
 QPushButton:checked {{ background: {INK}; color: {PAPER}; }}
 QPushButton:disabled {{ color: #9a958a; border-color: #9a958a; }}
 QLineEdit, QPlainTextEdit, QListWidget {{ border: 2px solid {INK}; background: {PAPER}; padding: 4px; selection-background-color: {INK}; selection-color: {PAPER}; }}
+QLineEdit {{ min-height: 20px; }}
 QLineEdit:focus, QPlainTextEdit:focus {{ background: #ffffff; }}
+QScrollArea {{ border: 0; }}
+QScrollBar:vertical {{ width: 8px; background: {PAPER}; margin: 0; }}
+QScrollBar::handle:vertical {{ background: {INK}; min-height: 30px; }}
+QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; }}
+QScrollBar::add-page, QScrollBar::sub-page {{ background: none; }}
 QSlider::groove:horizontal {{ height: 2px; background: {INK}; }}
 QSlider::handle:horizontal {{ width: 10px; margin: -7px 0; background: {INK}; }}
 QToolTip {{ background: {PAPER}; color: {INK}; border: 2px solid {INK}; }}
@@ -154,7 +160,117 @@ class Numbers(QFrame):
         self.nums[name].setText(str(value))
 
 
+class Chips(QWidget):
+    """a list of topics as chips, each with ×, and a box to add one"""
+    def __init__(self, title):
+        super().__init__()
+        self.items = []
+        v = QVBoxLayout(self)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(4)
+        v.addWidget(label(title, "lbl"))
+        self.flow = QLabel()
+        self.flow.setWordWrap(True)
+        self.flow.setTextFormat(Qt.TextFormat.RichText)
+        self.flow.linkActivated.connect(lambda t: self.set([x for x in self.items if x != t]))
+        v.addWidget(self.flow)
+        self.add = QLineEdit()
+        self.add.setPlaceholderText("+ add a topic")
+        self.add.returnPressed.connect(self._add)
+        v.addWidget(self.add)
+
+    def _add(self):
+        t = self.add.text().strip().lower()
+        self.add.clear()
+        if t and t not in self.items:
+            self.set(self.items + [t])
+
+    def set(self, items):
+        self.items = list(items)
+        self.flow.setText(" ".join(f'<span style="border:2px solid {INK}">&nbsp;{html.escape(t)} <a href="{html.escape(t)}" style="color:{INK};text-decoration:none"><b>×</b></a>&nbsp;</span>'
+                                   for t in self.items) or "—")
+
+
+class GoalBox(QFrame):
+    """your goal in plain words → Gemma drafts focus and block topics → you edit them → Apply"""
+    drafted = Signal(object)
+
+    def __init__(self, hull, culture, applied):
+        super().__init__()
+        self.hull, self.culture, self.applied = hull, culture, applied
+        self.setProperty("box", True)
+        v = QVBoxLayout(self)
+        v.setContentsMargins(8, 8, 8, 8)
+        v.setSpacing(6)
+        self.text = QPlainTextEdit()
+        self.text.setPlaceholderText("What do you want YouTube for?  e.g. I'm a student learning Bayesian statistics. Nothing else.")
+        self.text.setFixedHeight(58)
+        v.addWidget(self.text)
+        row = QHBoxLayout()
+        self.draft = QPushButton("DRAFT WITH GEMMA")
+        self.draft.clicked.connect(self.ask)
+        row.addWidget(self.draft)
+        self.note = label("", "lbl")
+        row.addWidget(self.note, 1)
+        v.addLayout(row)
+        self.focus, self.block = Chips("SHOW ONLY WHAT'S NEAR (empty: everything)"), Chips("NEVER SHOW WHAT'S NEAR")
+        v.addWidget(self.focus)
+        v.addWidget(self.block)
+        row = QHBoxLayout()
+        self.apply = QPushButton("APPLY")
+        self.apply.clicked.connect(self.use)
+        clear = QPushButton("CLEAR GOAL")
+        clear.clicked.connect(lambda: (self.text.clear(), self.focus.set([]), self.block.set([]), self.use()))
+        row.addWidget(self.apply)
+        row.addWidget(clear)
+        row.addStretch(1)
+        v.addLayout(row)
+        self.drafted.connect(self.show_draft)
+        goal = (hull.settings.get("goal") if hull.settings else None) or {"text": "", "focus": culture.focus, "block": culture.block}
+        self.text.setPlainText(goal.get("text", ""))
+        self.focus.set(goal.get("focus", []))
+        self.block.set(goal.get("block", []))
+
+    def ask(self):
+        text = self.text.toPlainText().strip()
+        if not text:
+            return
+        self.draft.setEnabled(False)
+        self.note.setText("GEMMA IS THINKING…")
+
+        def work():
+            try:
+                self.drafted.emit(self.culture.draft_goal(text))
+            except Exception as e:  # Ollama not running, say
+                self.drafted.emit(e)
+        threading.Thread(target=work, daemon=True).start()
+
+    def show_draft(self, goal):
+        self.draft.setEnabled(True)
+        if isinstance(goal, Exception):
+            self.note.setText(f"COULDN'T REACH GEMMA: {goal}"[:80])
+            return
+        self.note.setText("CHECK THE TOPICS, THEN APPLY")
+        self.focus.set(goal["focus"])
+        self.block.set(goal["block"])
+
+    def use(self):
+        goal = {"text": self.text.toPlainText().strip(), "focus": self.focus.items, "block": self.block.items}
+        self.note.setText("APPLIED" if goal["focus"] or goal["block"] else "NO GOAL: GEMMA ONLY MAPS YOUR CULTURE")
+
+        def work():  # embedding the topics needs Ollama: off the window's thread
+            self.hull.set_goal(goal)
+            try:
+                self.culture.anchors(goal["focus"] + goal["block"])
+            except Exception as e:
+                log.warning("couldn't embed the goal's topics: %s", e)
+            self.applied.emit()
+        threading.Thread(target=work, daemon=True).start()
+
+
 class Window(QMainWindow):
+    goal_applied = Signal()
+
     def __init__(self, hull, engine, tray):
         super().__init__()
         self.hull, self.engine, self.tray = hull, engine, tray
@@ -181,6 +297,11 @@ class Window(QMainWindow):
         side.addWidget(self.filtering)
         self.numbers = Numbers(["recorded", "shown", "hull hid"])
         side.addWidget(self.numbers)
+        self.culture = next((st for st in hull.stages.values() if hasattr(st, "graph")), None)
+        if self.culture:
+            side.addWidget(label("YOUR GOAL", "h2"))
+            side.addWidget(GoalBox(hull, self.culture, self.goal_applied))
+            self.goal_applied.connect(lambda: (setattr(self.map, "key", None), self.redraw()))
         side.addWidget(label("TOPIC", "h2"))
         self.details = label("Click a topic on your culture map.")
         self.details.setTextFormat(Qt.TextFormat.RichText)
@@ -191,9 +312,14 @@ class Window(QMainWindow):
         self.side = side
         side.addStretch(1)
         holder = QWidget()
+        holder.setObjectName("page")
         holder.setLayout(side)
-        holder.setFixedWidth(360)
-        self.columns.addWidget(holder)
+        scroll = QScrollArea()  # the side column scrolls on small screens
+        scroll.setWidget(holder)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setFixedWidth(372)
+        self.columns.addWidget(scroll)
 
         main = QVBoxLayout()
         main.setSpacing(6)
@@ -205,7 +331,6 @@ class Window(QMainWindow):
         self.legend.setText(f'<span style="color:{BLUE}">●</span> NEAR YOUR FOCUS &nbsp; <span style="color:{RED}">●</span> NEAR WHAT YOU BLOCK &nbsp; ◌ GEMMA DECIDES')
         head.addWidget(self.legend)
         main.addLayout(head)
-        self.culture = next((st for st in hull.stages.values() if hasattr(st, "graph")), None)
         self.map = CultureMap()
         self.map.picked.connect(self.pick)
         main.addWidget(self.map, 1)

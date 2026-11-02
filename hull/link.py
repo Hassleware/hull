@@ -45,7 +45,7 @@ class Hull:
             self.stages[s["id"]] = KINDS[s["kind"]](s["config"], store)
             self.kinds[s["id"]] = (s["kind"], s["config"])
         if settings and settings.get("goal"):
-            self._use_goal(settings["goal"])
+            self._use_goal(settings.get("goal"))
         self.status = {"rudder": False, "firefox": False, "filtering": False, "steering": False, "warming": False, "stages": []}
         self.listeners = []  # called with the status (on Hull's thread) whenever it changes
         self.loop, self.rudder = None, None
