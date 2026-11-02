@@ -29,7 +29,8 @@ MOST = 300  # topics drawn: the most-seen ones
 OPEN_PX = 260  # a community opens (its topics' names come out) once it's this big on screen
 GAP = 4  # px kept between names
 GLOW = 0.04  # a topic's glow reaches about this share of the map's width
-BORDER = 0.03  # a theme's border sits this share of the map's width out from its topics
+BORDER = 0.03  # a theme's (unseen, for hovering) shape sits this share of the map's width out from its topics
+LEVEL = 0.22  # the glow at which the border runs: lower, and shapes reach further and merge sooner
 
 
 def flatten(vecs):
@@ -193,11 +194,13 @@ def rgb(hexcolor):
     return np.array([int(hexcolor[i:i + 2], 16) for i in (1, 3, 5)], float)
 
 
-def colour_field(xy, sides, weights, box, size, sigma):
+def colour_field(xy, sides, weights, box, size, sigma, level=None):
     """the map's colour, worked out at every point of a grid over box (x, y, w, h) at size (columns, rows): each topic
     glows (gaussian, sigma wide, stronger the more videos it has), blue if the goal shows it (+1), red if it hides it
     (-1), beige if neither (0). A point takes the blend of the glows around it: its colour leans blue or red by their
-    weighted balance, beige where they're even; its strength is how much glow reaches it. → (rows, columns, 4) RGBA bytes"""
+    weighted balance, beige where they're even; its strength is how much glow reaches it. With a level, only ground
+    whose glow reaches it is coloured (soft at the edge), the rest left clear: the shape the border traces.
+    → (rows, columns, 4) RGBA bytes, and the glow (rows, columns)"""
     cols, rows = size
     gx = box[0] + (np.arange(cols) + 0.5) * box[2] / cols
     gy = box[1] + (np.arange(rows) + 0.5) * box[3] / rows
@@ -213,7 +216,33 @@ def colour_field(xy, sides, weights, box, size, sigma):
     tone = np.where(lean[..., None] >= 0, blue, red)
     colour = shade + (tone - shade) * (np.abs(lean)[..., None] * 0.85)
     out = paper + (colour - paper) * (strength[..., None] * 0.85)
-    return np.dstack([np.clip(out, 0, 255).astype(np.uint8), np.full((rows, cols), 255, np.uint8)])
+    alpha = np.full((rows, cols), 255.0) if level is None else 255 * np.clip((density - 0.85 * level) / (0.3 * level), 0, 1)
+    return np.dstack([np.clip(out, 0, 255).astype(np.uint8), alpha.astype(np.uint8)]), density
+
+
+# marching squares: which cell edges the border crosses, by which corners (top-left, top-right, bottom-right,
+# bottom-left) are inside. Edges: 0 top, 1 right, 2 bottom, 3 left.
+CROSSINGS = {1: [(3, 2)], 2: [(2, 1)], 3: [(3, 1)], 4: [(0, 1)], 5: [(3, 0), (2, 1)], 6: [(0, 2)], 7: [(3, 0)], 8: [(3, 0)],
+             9: [(0, 2)], 10: [(0, 1), (3, 2)], 11: [(0, 1)], 12: [(3, 1)], 13: [(2, 1)], 14: [(3, 2)]}
+
+
+def contour(density, level, box):
+    """the line where the glow crosses level, as segments ((x1, y1), (x2, y2)) in scene coordinates: one smooth border
+    around everything, merging wherever topics are close enough for their glows to add up"""
+    rows, cols = density.shape
+    gx = box[0] + (np.arange(cols) + 0.5) * box[2] / cols
+    gy = box[1] + (np.arange(rows) + 0.5) * box[3] / rows
+    a, b, c, d = density[:-1, :-1], density[:-1, 1:], density[1:, 1:], density[1:, :-1]
+    case = (a > level) * 8 + (b > level) * 4 + (c > level) * 2 + (d > level) * 1
+    t = lambda p, q: np.clip((level - p) / np.where(q == p, 1e-9, q - p), 0, 1)
+    out = []
+    for j, i in zip(*np.nonzero((case > 0) & (case < 15))):
+        x0, x1, y0, y1 = gx[i], gx[i + 1], gy[j], gy[j + 1]
+        A, B, C, D = a[j, i], b[j, i], c[j, i], d[j, i]
+        edge = [(x0 + (x1 - x0) * t(A, B), y0), (x1, y0 + (y1 - y0) * t(B, C)),
+                (x0 + (x1 - x0) * t(D, C), y1), (x0, y0 + (y1 - y0) * t(A, D))]
+        out += [(edge[e], edge[f]) for e, f in CROSSINGS[case[j, i]]]
+    return out
 
 
 def cosmetic(color, width, alpha=255):
@@ -288,30 +317,31 @@ class InternetCultureMap(QGraphicsView):
         pad = 0.6 * float(span_xy.max())
         box = QRectF(*xy.min(0), *span_xy).adjusted(-pad, -pad, pad, pad)
         border = BORDER * float(span_xy.max())  # how far a border sits out from its topics
+        fill = QGraphicsPixmapItem()  # the colour, clear outside the border
+        fill.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
+        fill.setPos(box.topLeft())
+        fill.setZValue(-5)
+        scene.addItem(fill)
+        edge = QGraphicsPathItem()  # the border: one line round all of it
+        edge.setPen(cosmetic(INK, 1.4, 130))
+        edge.setZValue(-4)
+        scene.addItem(edge)
         blobs = {}
         for c, ms in members.items():
-            inside_ = QGraphicsPathItem()  # clips the field to the theme
-            inside_.setFlag(QGraphicsItem.GraphicsItemFlag.ItemClipsChildrenToShape)
-            inside_.setPen(QPen(Qt.PenStyle.NoPen))
-            inside_.setZValue(-5)
-            fill = QGraphicsPixmapItem(inside_)
-            fill.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
-            fill.setPos(box.topLeft())
-            line = QGraphicsPathItem()  # the border
-            line.setPen(cosmetic(INK, 1.3, 120))
-            line.setBrush(QBrush(QColor(0, 0, 0, 1)))  # all but invisible, still under the pointer for its numbers
-            line.setZValue(-4 - len(ms) / 1000)  # bigger themes further back
+            line = QGraphicsPathItem()  # a theme's shape, unseen: its numbers when the pointer is over it
+            line.setPen(QPen(Qt.PenStyle.NoPen))
+            line.setBrush(QBrush(QColor(0, 0, 0, 1)))
+            line.setZValue(-3 - len(ms) / 1000)  # bigger themes further back
             if c in big:
                 shown, hidden = theme_share([marks.get(names[i]) for i in ms], focused)
                 n, top = len(ms), names[max(ms, key=lambda i: counts[i])]
                 likely = ("shown" if shown > hidden else "hidden") if max(shown, hidden) >= 0.5 else "decided by its own topics"
                 line.setToolTip(f"{top}: {round(shown * n)} of {n} topics shown, {round(hidden * n)} hidden.\n"
                                 f"A new video like these will most likely be {likely}.")
-            scene.addItem(inside_)
             scene.addItem(line)
-            blobs[c] = (inside_, fill, line)
+            blobs[c] = line
         self.field = dict(sides=sides, weights=np.array([math.sqrt(c / most) + 0.3 for c in counts]), box=box,
-                          spread=GLOW * float(span_xy.max()), border=border, blobs=blobs, members=members, shown_at=None)
+                          spread=GLOW * float(span_xy.max()), border=border, blobs=blobs, members=members, fill=fill, edge=edge)
 
         # lines: each one, and one per pair of communities for when they're small on screen
         inside, across, between = {}, [], {}
@@ -406,21 +436,21 @@ class InternetCultureMap(QGraphicsView):
         cols = 520 if fine else 150
         box = f["box"]
         rows = max(1, int(cols * box.height() / max(box.width(), 1)))
-        pixels = colour_field(p["xy"][seen], f["sides"][seen], f["weights"][seen], (box.x(), box.y(), box.width(), box.height()), (cols, rows), f["spread"])
+        area = (box.x(), box.y(), box.width(), box.height())
+        pixels, glow = colour_field(p["xy"][seen], f["sides"][seen], f["weights"][seen], area, (cols, rows), f["spread"], LEVEL)
         self._pixels = np.ascontiguousarray(pixels)  # kept alive while the image is made
-        pixmap = QPixmap.fromImage(QImage(self._pixels.data, cols, rows, cols * 4, QImage.Format.Format_RGBA8888))
-        for c, (inside_, fill, line) in f["blobs"].items():
+        f["fill"].setPixmap(QPixmap.fromImage(QImage(self._pixels.data, cols, rows, cols * 4, QImage.Format.Format_RGBA8888)))
+        f["fill"].setScale(box.width() / cols)
+        path = QPainterPath()
+        for (x1, y1), (x2, y2) in contour(glow, LEVEL, area):
+            path.moveTo(x1, y1)
+            path.lineTo(x2, y2)
+        f["edge"].setPath(path)
+        for c, line in f["blobs"].items():
             now = [i for i in f["members"][c] if seen[i]]
-            for item in (inside_, line):
-                item.setVisible(bool(now))
-            if not now:
-                continue
-            if fine or inside_.path().isEmpty():  # borders fitted to what's shown; while sliding, the last ones stay
-                shape = blob(p["xy"][now], f["border"])
-                inside_.setPath(shape)
-                line.setPath(shape)
-            fill.setPixmap(pixmap)
-            fill.setScale(box.width() / cols)
+            line.setVisible(bool(now))
+            if now and (fine or line.path().isEmpty()):
+                line.setPath(blob(p["xy"][now], f["border"]))
         self.apply_detail()
 
     def apply_detail(self):

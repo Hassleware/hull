@@ -1,6 +1,6 @@
 """Hull's checks, no Firefox needed. Run: python -m unittest
 A fake Rudder (an in-process gRPC server speaking Rudder's real contract) stands in for Rudder's bridge."""
-import asyncio, io, tempfile, time, unittest, zlib
+import asyncio, io, math, tempfile, time, unittest, zlib
 
 import grpc
 import numpy as np
@@ -471,7 +471,7 @@ class TestMapLayout(unittest.TestCase):
     def test_colour_field_blends_by_distance(self):
         from hull.mapview import colour_field, rgb, BLUE, RED, PAPER
         xy = np.array([[0.0, 0.0], [100.0, 0.0]])
-        px = colour_field(xy, [1.0, -1.0], [1.0, 1.0], (-200, -50, 500, 100), (50, 10), 20).astype(float)[..., :3]
+        px = colour_field(xy, [1.0, -1.0], [1.0, 1.0], (-200, -50, 500, 100), (50, 10), 20)[0].astype(float)[..., :3]
         at = lambda x: px[5, int((x + 200) / 10)]
         near = lambda c, x: np.linalg.norm(at(x) - rgb(c))
         self.assertLess(near(BLUE, 0), near(RED, 0))  # blue by the shown topic
@@ -479,6 +479,17 @@ class TestMapLayout(unittest.TestCase):
         self.assertLess(near(PAPER, 290), 3)  # paper far from both
         mid = at(50)
         self.assertTrue(near(PAPER, 50) > 3 and abs(mid[0] - mid[2]) < abs(at(0)[0] - at(0)[2]))  # in between: a blend
+
+    def test_border_merges_close_topics(self):
+        from hull.mapview import colour_field, contour
+        box = (-150, -100, 400, 200)
+        _, apart = colour_field(np.array([[0.0, 0.0], [100.0, 0.0]]), [0, 0], [1, 1], box, (200, 100), 12)
+        _, close = colour_field(np.array([[0.0, 0.0], [30.0, 0.0]]), [0, 0], [1, 1], box, (200, 100), 12)
+        mid = lambda g, x: g[50, int((x + 150) / 2)]  # the glow halfway between the two
+        self.assertLess(mid(apart, 50), 0.22)  # far apart: a gap between two shapes
+        self.assertGreater(mid(close, 15), 0.22)  # close: one shape round both
+        r = [abs(complex(x1, y1)) for (x1, y1), _ in contour(apart, 0.22, box) if x1 < 50]
+        self.assertAlmostEqual(np.mean(r), 12 * math.sqrt(2 * math.log(1 / 0.22)), delta=3)  # a circle where the glow is 0.22
 
     def test_communities_split_where_links_thin(self):
         from hull.mapview import communities
