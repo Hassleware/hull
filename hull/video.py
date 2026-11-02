@@ -35,4 +35,4 @@ class Result:
 
     def __post_init__(self):
         if self.decision not in DECISIONS:
-            raise ValueError(f"decision must be one of {DECISIONS}, not {self.decision!r}")
+            raise ValueError(f"decision {self.decision!r} isn't one of {DECISIONS}")

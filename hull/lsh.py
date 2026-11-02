@@ -2,10 +2,10 @@
 get the same key in at least one band, so only those few are compared exactly.
 
   - Titles: MinHash over a title's words. 16 bands of 4 hashes catch title pairs whose words overlap by about half
-    or more; the exact check then asks for `title_jaccard` (default 0.8): a re-upload, not the next episode
-    ("ep 12" vs "ep 13" share 3 of 5 words, 0.6).
+    or more; the exact check then asks for `title_jaccard` (default 0.8): a re-upload. The next episode
+    ("ep 12" vs "ep 13") shares 3 of 5 words, 0.6, and stays a video of its own.
   - Thumbnails: dHash, 256 bits of light-to-dark steps in a 17x16 grey copy, unchanged by resizing and
-    recompression; fine enough that a channel's template with another face or text isn't a copy. 16 bands of 16
+    recompression; fine enough to tell a channel's template with another face or text apart from a copy. 16 bands of 16
     bits: two hashes within 15 bits always share a band; the exact check asks for `thumb_bits` (default 12).
 """
 import hashlib, io, re

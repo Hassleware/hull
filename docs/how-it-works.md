@@ -8,7 +8,7 @@ Rudder, a Firefox extension, reads every recommendation before it's shown and ru
 
 - **No repeats.** A video Rudder has put on screen once never comes back, and neither does a re-upload of it.
 - **A culture graph.** Gemma names every video's topics, from its exact subject up to its field. Topics become nodes, and topics that share videos get linked.
-- **Block and focus by meaning, not keywords.** `block = ["grand theft auto"]` also hides Los Santos and Michael De Santa. `focus = ["bayesian statistics"]` turns YouTube into a study feed: only videos near that topic in the graph get through. Gemma settles the borderline cases using the graph.
+- **Block and focus by meaning.** `block = ["grand theft auto"]` also hides Los Santos and Michael De Santa. `focus = ["bayesian statistics"]` turns YouTube into a study feed: only videos near that topic in the graph get through. Gemma settles the borderline cases using the graph.
 
 ```
 YouTube ─▶ Rudder (Firefox) ─▶ Rudder's bridge (127.0.0.1:7833) ◀─▶ Hull ─▶ Ollama (Gemma, on your GPU)
@@ -41,7 +41,7 @@ Hull opens its window, loads the models, joins Rudder's pipeline right after Rud
 
 - **The banner** says what Hull is doing, first thing:
   - blue, *Hull is steering Rudder*: Hull's stages are in Rudder's pipeline;
-  - paper, *Watching, not steering*: Rudder filters on its own, and Hull keeps recording;
+  - paper, *Hull is watching*: Rudder filters on its own, and Hull keeps recording;
   - striped, *Rudder isn't running*: start Rudder's bridge and Firefox.
 - **Two switches.**
   - *Hull steers Rudder* puts Hull's stages into Rudder's pipeline or takes them out.
@@ -94,7 +94,7 @@ Editing a stage's config, or applying a goal, makes Rudder judge again the video
 
 **Repeats.** Rudder reports every video it puts on screen (`WatchShown`). Hull adds each id to a Bloom filter: about 1.8 MB holds a million videos, with a 0.1% chance of calling a new video a repeat. That is the strict side to err on. The filter can't catch a re-upload under a new id, so shown videos' titles and thumbnails also go into two locality-sensitive hash indexes:
 - **Titles:** MinHash over the title's words. A copy shares at least 80% of its words, so "ep 12" and "ep 13" are different videos.
-- **Thumbnails:** a 256-bit dHash. A copy differs by at most 12 bits, which survives resizing and recompression but not a new face on the same template.
+- **Thumbnails:** a 256-bit dHash. A copy differs by at most 12 bits, which survives resizing and recompression; a new face on the same template counts as a different thumbnail.
 
 Hull's stages ask Rudder to ask again every time YouTube sends a video (`remember: false`). Without that, Rudder would reuse Hull's first answer forever and a repeat would never be caught.
 
@@ -105,17 +105,17 @@ Hull's stages ask Rudder to ask again every time YouTube sends a video (`remembe
 
 It names 3 to 6 topics, from the subject up to the field. For example, "I spent 100 days in Los Santos" becomes *los santos → grand theft auto v → video games*. Every name is embedded with `embeddinggemma`, and names within 0.94 cosine of a known topic merge into it ("gta" is "grand theft auto"). A video is tagged once. A batch of 12 takes about 4 seconds, well inside Rudder's 25-second limit. Videos not tagged in time stay hidden and are asked about again the next time they come.
 
-**What you watch.** Rudder asks YouTube's player for English captions on every video you watch and streams each line to Hull as you reach it (`WatchCaptions`). Hull keeps them (table `captions`). Once about 600 characters have been said, Gemma tags the video again from its title and what's said in it, and those topics join your map. A watched video is mapped by its content, not just how it's sold, and the topic details mark it ▶. Captions stay hidden on the video unless you press CC or C.
+**What you watch.** Rudder asks YouTube's player for English captions on every video you watch and streams each line to Hull as you reach it (`WatchCaptions`). Hull keeps them (table `captions`). Once about 600 characters have been said, Gemma tags the video again from its title and what's said in it, and those topics join your map. A watched video is mapped by its content, and the topic details mark it ▶. Captions stay hidden on the video unless you press CC or C.
 
 **Block and focus: areas of your map.** A goal covers an area of your culture map:
-1. its topics, and near-synonyms of them (cosine ≥ `area_seed`, 0.85: "비디오 게임" for "video games", not "video media");
+1. its topics, and near-synonyms of them (cosine ≥ `area_seed`, 0.85: "비디오 게임" for "video games");
 2. then, one edge out (`focus_hops` / `block_hops`), each neighbour where at least half its videos (`focus_link` / `block_link`) are already in the area.
 
-A topic that mostly lives around your goal joins it: around "video games", Roblox, Frostpunk and League of Legends join. A big separate subject that touched it once doesn't: music only shares a game soundtrack, 1 of its 25 videos. A video with a topic in the block area is hidden. With a focus, a video with a topic in the focus area is shown.
+A topic that mostly lives around your goal joins it: around "video games", Roblox, Frostpunk and League of Legends join. A big separate subject that touched it once stays out: music only shares a game soundtrack, 1 of its 25 videos. A video with a topic in the block area is hidden. With a focus, a video with a topic in the focus area is shown.
 
-The goal box makes the area wide from the start: Gemma sees your whole map and lists the subject the way someone who knows it would, with the field, its parts and the topics on your map that belong. A gamer's goal becomes video games, gaming culture, esports, walkthroughs, PC gaming and so on, not just "video games".
+The goal box makes the area wide from the start: Gemma sees your whole map and lists the subject the way someone who knows it would, with the field, its parts and the topics on your map that belong. A gamer's goal becomes video games, gaming culture, esports, walkthroughs, PC gaming and so on.
 
-Topics outside every area (new ones, not linked yet) are judged by meaning. How near a video is to a topic is the best of its topics' relatedness to it. Relatedness is the larger of:
+Topics outside every area (new ones without links yet) are judged by meaning. How near a video is to a topic is the best of its topics' relatedness to it. Relatedness is the larger of:
 - how alike the two topics' meanings are;
 - the same, through a neighbour: the share of this topic's videos that are also on a neighbour topic, times how alike that neighbour is.
 

@@ -333,7 +333,7 @@ class TestHullWithRudder(unittest.IsolatedAsyncioTestCase):
             await until(lambda: not hull.status["steering"])
             self.assertNotIn("hull-rules", [s.id for s in fake.stages])
             self.assertEqual((hull.status["rudder"], Settings(tmp).get("steering")), (True, False))
-            await until(lambda: "not steering" in fake.panels[-1].blocks[0].text)
+            await until(lambda: "watching" in fake.panels[-1].blocks[0].text)
             hull.set_filtering(False)  # Rudder's own switch
             await until(lambda: not hull.status["filtering"])
             self.assertFalse(fake.enabled)
@@ -407,7 +407,7 @@ class TestCaptions(unittest.TestCase):
             self.assertIsNone(c.heard("b", "today we update our beliefs"))  # not enough said yet
             c.heard("b", "with the likelihood and a prior").result()
             self.assertIn("update our beliefs with the likelihood", c.ollama.heard_prompt)
-            self.assertEqual(c.graph.topics_of("b"), ["bayes theorem", "statistics", "probability theory"])  # added, not doubled
+            self.assertEqual(c.graph.topics_of("b"), ["bayes theorem", "statistics", "probability theory"])  # each once
             self.assertEqual(dict(c.graph.stats()["top"])["bayes theorem"], 1)
             n = c.ollama.calls
             c.heard("b", "more and more words, and many more of them")

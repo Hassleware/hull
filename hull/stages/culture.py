@@ -4,7 +4,7 @@ culture graph (hull/graph.py). A video is tagged once; after that it's answered 
 Gemma runs in Ollama with the title, channel, description, Rudder's thumbnail text and the thumbnail itself, plus
 the known topics nearest the video, so it reuses the graph's names. A video you watch is tagged again once enough of
 it has been said (`heard_chars` of its captions): its title and what's said in it, so watched videos are mapped by
-their content, not just how they're sold (table watched). Videos not tagged within `budget` seconds are
+their content (table watched). Videos not tagged within `budget` seconds are
 hidden for now (strict) and keep being tagged; Rudder asks again the next time YouTube sends them.
 
 Then your map decides (hull/graph.py). Each goal covers an area of the map: the goal's topics, topics that mean the
@@ -49,7 +49,7 @@ GOAL_SCHEMA = {"type": "object", "properties": {
     "focus": {"type": "array", "items": {"type": "string"}, "maxItems": 30},
     "block": {"type": "array", "items": {"type": "string"}, "maxItems": 30}}, "required": ["focus", "block"]}
 GOAL = """A viewer says what they want YouTube for. Turn it into the topics of their filter, the way someone who knows the subject well would.
-- focus: only if they want nothing but certain subjects (they say "only", "just", "nothing else"); otherwise empty, since liking something is not wanting only it. When they do, list each subject broadly: the field itself, its main kinds and parts, the communities and people around it, and every topic on their map below that belongs to it. For someone who only wants cooking, that means cooking, recipes, baking, specific dishes and cuisines, chefs and cooking channels, food science.
+- focus: only if they want nothing but certain subjects (they say "only", "just", "nothing else"); otherwise leave it empty. When they do, list each subject broadly: the field itself, its main kinds and parts, the communities and people around it, and every topic on their map below that belongs to it. For someone who only wants cooking, that means cooking, recipes, baking, specific dishes and cuisines, chefs and cooking channels, food science.
 - block: subjects they never want to see, each listed just as broadly.
 Short lowercase noun phrases. Use their map's topics word for word where they fit, and add the subject's other important parts even if their map doesn't have them yet.
 
@@ -57,7 +57,7 @@ Their map (most seen first): {known}
 
 The viewer: {text}"""
 PROMPT = """Name this YouTube video's topics: 3 to 6 short lowercase noun phrases, from the most specific (the exact subject: the game, show, person, technique or idea) up to its broad field (such as "video games", "statistics", "cooking", "music").
-Name subjects, not formats: in "100 days in Los Santos" the subject is the game Los Santos belongs to (grand theft auto v), not "100 days challenge". Name the franchise or field a place, character or term belongs to. Use the thumbnail too.
+Name the subject itself: in "100 days in Los Santos" the subject is grand theft auto v, the game Los Santos belongs to. Name the franchise or field a place, character or term belongs to. Use the thumbnail too.
 Topics already on this viewer's map, to reuse word for word when one fits: {known}
 
 Title: {title}

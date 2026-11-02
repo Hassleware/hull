@@ -130,7 +130,7 @@ class Banner(QLabel):
         elif s["steering"]:
             text, bg, fg = "HULL IS STEERING RUDDER · your goal and culture map decide what YouTube shows", BLUE, INK
         else:
-            text, bg, fg = "HULL IS WATCHING, NOT STEERING · Rudder filters on its own", PAPER, INK
+            text, bg, fg = "HULL IS WATCHING · Rudder filters on its own", PAPER, INK
         if s.get("warming"):
             text += " · loading Gemma…"
         self.setText(text)
@@ -436,7 +436,7 @@ class Window(QMainWindow):
         self.steer.show_state(s["steering"] if connected else self.hull.steering, connected)
         self.filtering.show_state(s["filtering"], connected)
         self.tray.setIcon(QIcon(str(ASSETS / ("hull-icon.svg" if s["steering"] else "hull-icon-off.svg"))))
-        self.tray.setToolTip("Hull: steering Rudder" if s["steering"] else "Hull: not steering")
+        self.tray.setToolTip("Hull: steering Rudder" if s["steering"] else "Hull: watching while Rudder filters on its own")
         if hasattr(self, "steer_action"):  # the tray menu's switch
             self.steer_action.setChecked(self.hull.steering)
 

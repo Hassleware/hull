@@ -53,10 +53,10 @@ python -m unittest             # tests, no Firefox or Ollama needed
 
 - **Strict, like Rudder.** Anything that fails, can't answer in time or isn't tagged yet hides. Never add a path that passes or shows a video because something went wrong.
 - **Leave cleanly.** On exit Hull removes its stages from Rudder's pipeline; keep that working.
-- **Always say whether Hull is steering.** The app's banner and tray icon, and the panel in Rudder's popup, follow Rudder's real pipeline (`status["steering"]`), not what was asked for.
+- **Always say whether Hull is steering.** The app's banner and tray icon, and the panel in Rudder's popup, follow Rudder's real pipeline (`status["steering"]`).
 - **Look like Rudder.** Paper `#f2ede1`, ink `#111`, Rudder blue `#5BB8F0`, red `#E5484D`, square 2px borders, monospace, uppercase headings.
 - **The app never blocks on Gemma or Rudder.** Anything that calls Ollama or the API runs off the window's thread.
-- **Rudder's API is the contract.** Talk to Rudder only through it. When Rudder's `rudder.proto` changes, run `scripts/sync_proto.py` rather than editing `hull/rudder/`.
+- **Rudder's API is the contract.** Talk to Rudder only through it. When Rudder's `rudder.proto` changes, run `scripts/sync_proto.py` to refresh `hull/rudder/`.
 - **No requests to YouTube.** Use what Rudder sends; Hull doesn't fetch from YouTube either.
 - **The GPU is allowed** (Gemma in Ollama), but ask the user before running anything on it during development: they may be gaming.
 - **Comments:** short and plain, saying why. A deliberate shortcut gets a `ponytail:` comment naming its limit.

@@ -101,7 +101,7 @@ class Graph:
 
     def area(self, anchor_vecs, at=0.85, link=0.5, hops=1):
         """the part of the map around some topics: the topics themselves and their near-synonyms (cosine ≥ at: "비디오
-        게임" for "video games", not "video media", which only shares a word), then, up to
+        게임" for "video games"), then, up to
         `hops` edges out, every neighbour most of whose videos (share ≥ link) are already inside. A topic that mostly
         lives there joins (roblox, frostpunk around video games); a big separate subject that touched it once doesn't
         (music, through a game's soundtrack), so the area can't leak across the map."""

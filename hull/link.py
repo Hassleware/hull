@@ -152,7 +152,7 @@ class Hull:
         keep = [s for s in p.stages if not ours(s)]
         if len(keep) != len(p.stages):
             p = await rudder.SetPipeline(pb.Pipeline(stages=keep), timeout=timeout)  # none left: Rudder's default
-            log.info("not steering: %s", " → ".join(s.id for s in p.stages))
+            log.info("Rudder filters on its own: %s", " → ".join(s.id for s in p.stages))
 
     async def leave(self):
         """take Hull's stages and panel back out of Rudder (on exit)"""
@@ -220,7 +220,7 @@ class Hull:
     def panel_message(self):
         s = self.store.stats()
         goal = self.settings.get("goal") if self.settings else None
-        head = ("Hull is steering Rudder" if self.steering else "Hull is running but not steering: Rudder filters on its own") + \
+        head = ("Hull is steering Rudder" if self.steering else "Hull is watching: Rudder filters on its own") + \
                (f". Goal: {goal['text']}" if goal and goal.get("text") and self.steering else "")
         return pb.Panel(id=APP, title="Hull", blocks=[
             pb.Block(text=head),

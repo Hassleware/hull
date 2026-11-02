@@ -10,11 +10,11 @@ Solution: Hull is the ship under the Rudder. It runs on your own computer, and n
 
 <p align="center"><img src="docs/goal.png" alt="Your goal in plain words, turned into topics by Gemma" width="366"></p>
 
-Then you tell Hull what you want, in your own words: "I'm learning Bayesian statistics. Nothing else." Gemma turns that into places on your map, and you can change them before you press Apply. Hull lets through the videos near those places and hides the rest, even the ones you never thought to block. And it never shows you the same video twice, not even a copy uploaded under a new name.
+Then you tell Hull what you want, in your own words: "I'm learning Bayesian statistics. Nothing else." Gemma turns that into places on your map, and you can change them before you press Apply. Hull lets through the videos near those places and hides the rest, even the ones you never thought to block. And it shows you each video only once, copies uploaded under a new name included.
 
-Hull also listens. When you watch a video, Rudder quietly reads its English subtitles, without showing them unless you press CC. Gemma learns what the video really talks about, not just what its title promises, so your map is built from what you actually watch.
+Hull also listens. When you watch a video, Rudder quietly reads its English subtitles, without showing them unless you press CC. Gemma learns what the video really talks about, so your map is built from what you actually watch.
 
-<p align="center"><img src="docs/steering.png" alt="Hull is steering Rudder" width="366"> <img src="docs/not-steering.png" alt="Hull is watching, not steering" width="366"></p>
+<p align="center"><img src="docs/steering.png" alt="Hull is steering Rudder" width="366"> <img src="docs/not-steering.png" alt="Hull is watching while Rudder filters on its own" width="366"></p>
 
 You are always the captain. One switch puts Hull in charge of Rudder, and one switch turns Rudder off. Nothing on your screen jumps when you flip them; the change starts with the next videos. Hull says in big letters whether it is steering, and Rudder's own popup shows Hull's numbers too. Close the window and Hull keeps sailing from the tray.
 
