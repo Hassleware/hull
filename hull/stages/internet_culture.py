@@ -176,12 +176,32 @@ class InternetCulture:
             known[vid] = f.result() if f.done() and not f.exception() else None
         return [known[v.id] for v in videos]
 
-    def draft_goal(self, text, batch=40):
+    def draft_goal(self, text, batch=40, progress=None):
         """a goal in the viewer's words → {"text", "focus", "block", "sorted"}: Gemma drafts what it's for and against,
-        then sorts every topic on the map (in batches, side by side) into for, against or neither"""
+        then sorts every topic on the map (in batches, side by side) into for, against or neither.
+
+        progress(step, done, total, fraction, eta): told as it goes. Times are measured: the draft's first call, then
+        the batches as they finish (their real pace now, alongside whatever else Gemma is doing); before any have
+        finished, the pace of the last draft (kept in hull.db); eta is None until there's something to go on."""
         clean = lambda xs: list(dict.fromkeys(x.strip().lower() for x in xs if x.strip()))
         names = [r[0] for r in self.db.execute("select name from topics order by videos desc")]
+        chunks = [names[i:i + batch] for i in range(0, len(names), batch)]
+        self.db.execute("create table if not exists pace (what text primary key, seconds real)")
+        last = dict(self.db.execute("select what, seconds from pace").fetchall())  # the last draft's measured times
+        start = time.monotonic()
+        # the whole draft in seconds: the first call, the batches (their pace × how many), the check against the map
+        guess = lambda first, per: first + per * len(chunks) + last.get("check", 1.0)
+
+        def tell(step, done, eta):
+            if progress:
+                spent = time.monotonic() - start
+                progress(step=step, done=done, total=len(chunks), eta=eta,
+                         fraction=spent / (spent + eta) if eta is not None else done / max(1, len(chunks) + 1))
+
+        known = "first" in last and "batch" in last
+        tell("Gemma reads your goal", 0, guess(last["first"], last["batch"]) if known else None)
         r = self.ollama.json(self.model, GOAL.format(text=text), SIDES, system=SYSTEM)  # the subject itself; the map is sorted next
+        first_call = time.monotonic() - start
         pro, con = clean(r["for"]), clean(r["against"])
 
         def sort(chunk):
@@ -190,10 +210,22 @@ class InternetCulture:
             got = self.ollama.json(self.model, SORT.format(text=text, pro=", ".join(pro) or "nothing named", con=", ".join(con) or "nothing named"),
                                    labels, system=SYSTEM)
             return [t for t in chunk if got.get(t) == "for"], [t for t in chunk if got.get(t) == "against"]
-        for p_, c_ in self.pool.map(sort, [names[i:i + batch] for i in range(0, len(names), batch)]):
+        sorting = time.monotonic()
+        tell(f"Gemma sorts {len(names)} topics", 0, last["batch"] * len(chunks) + last.get("check", 1.0) if "batch" in last else None)
+        futures = [self.pool.submit(sort, c) for c in chunks]
+        for done, _ in enumerate(cf.as_completed(futures), 1):
+            per = (time.monotonic() - sorting) / done  # the measured pace: batches finish this often, side by side
+            if "batch" in last:  # early on, a few batches say little: lean on the last draft's pace until about 6 are in
+                per = (done * per + 6 * last["batch"]) / (done + 6)
+            tell(f"Gemma sorts {len(names)} topics", done, per * (len(chunks) - done) + last.get("check", 1.0))
+        for f in futures:
+            p_, c_ = f.result()
             pro += p_
             con += c_
         pro, con = clean(pro), clean(con)
+        per = (time.monotonic() - sorting) / max(1, len(chunks))
+        checking = time.monotonic()
+        tell("Checking against your map", len(chunks), last.get("check", 1.0))
         # Gemma mislabels some map topics "for" (fatbergs for a gamer): keep one only if it's clearly alike in meaning
         # to what the goal is for (≥ 0.75), or sits in the map's area around the ones that are
         on = [t for t in pro if t in self.graph.index]
@@ -211,6 +243,10 @@ class InternetCulture:
         first = set(clean(r["for"])), set(clean(r["against"]))
         pro = [x for x in pro if x not in both or x in first[0]]
         con = [x for x in con if x not in both or (x in first[1] and x not in first[0])]
+        timing = {"first": first_call, "batch": per, "check": time.monotonic() - checking}
+        self.db.executemany("insert or replace into pace values (?,?)", list(timing.items()))
+        self.db.commit()
+        tell("Done", len(chunks), 0.0)
         return {"text": text.strip(), "focus": pro, "block": con, "sorted": len(names)}
 
     def marks(self, names):

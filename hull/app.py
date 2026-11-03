@@ -10,7 +10,7 @@ from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QFontMetrics, QIcon
 from PySide6.QtSvgWidgets import QSvgWidget
 from PySide6.QtWidgets import (QApplication, QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu,
-                               QPlainTextEdit, QPushButton, QScrollArea, QSlider, QSystemTrayIcon, QVBoxLayout, QWidget)
+                               QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSlider, QSystemTrayIcon, QVBoxLayout, QWidget)
 
 from hull.link import Hull
 from hull.mapview import InternetCultureMap, theme_share
@@ -40,6 +40,8 @@ QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; }}
 QScrollBar::add-page, QScrollBar::sub-page {{ background: none; }}
 QSlider::groove:horizontal {{ height: 2px; background: {INK}; }}
 QSlider::handle:horizontal {{ width: 10px; margin: -7px 0; background: {INK}; }}
+QProgressBar {{ border: 2px solid {INK}; background: {PAPER}; }}
+QProgressBar::chunk {{ background: {BLUE}; }}
 QToolTip {{ background: {PAPER}; color: {INK}; border: 2px solid {INK}; }}
 """
 log = logging.getLogger("hull")
@@ -285,6 +287,7 @@ class Focus(QFrame):
 class Goals(QFrame):
     """your goals, all at once: one row each (Edit, ×), and a box to draft a new one with Gemma"""
     drafted = Signal(object)
+    progressed = Signal(dict)
 
     def __init__(self, hull, internet_culture, applied):
         super().__init__()
@@ -307,9 +310,18 @@ class Goals(QFrame):
         row.addWidget(self.draft)
         row.addStretch(1)
         v.addLayout(row)
+        self.bar = QProgressBar()  # the draft's progress, measured as it goes
+        self.bar.setRange(0, 1000)
+        self.bar.setTextVisible(False)
+        self.bar.setFixedHeight(12)
+        self.bar.hide()
+        v.addWidget(self.bar)
         self.note = label("", "lbl")
         v.addWidget(self.note)
         self.drafted.connect(self.show_draft)
+        self.progressed.connect(self.show_progress)
+        self.last = None  # the latest progress, and when it came: the bar runs on from it between reports
+        self.ticker = QTimer(self, interval=100, timeout=self.tick)
         self.show_rows()
 
     def show_rows(self):
@@ -342,17 +354,45 @@ class Goals(QFrame):
         if not text:
             return
         self.draft.setEnabled(False)
-        self.note.setText("GEMMA IS SORTING YOUR MAP (ABOUT A MINUTE)…")
+        self.bar.setValue(0)
+        self.bar.show()
+        self.note.setText("STARTING…")
+        self.started, self.last, self.shown = time.monotonic(), None, 0.0
+        self.ticker.start()
 
         def work():
             try:
-                self.drafted.emit(self.internet_culture.draft_goal(text))
+                self.drafted.emit(self.internet_culture.draft_goal(text, progress=lambda **p: self.progressed.emit(p)))
             except Exception as e:  # Ollama not running, say
                 self.drafted.emit(e)
         threading.Thread(target=work, daemon=True).start()
 
+    def show_progress(self, p):
+        self.last = (p, time.monotonic())
+        self.tick()
+
+    def tick(self):
+        """the bar and the time left, run on from the latest measured estimate; the bar never goes backwards"""
+        if not self.last:
+            return
+        p, at = self.last
+        now = time.monotonic()
+        eta = None if p["eta"] is None else max(0.0, p["eta"] - (now - at))
+        spent = now - self.started
+        fraction = p["fraction"] if eta is None else spent / (spent + eta) if spent + eta else 1.0
+        if eta is not None and eta == 0 and p["step"] != "Done":
+            fraction = min(fraction, 0.99)  # running over the estimate: wait at the end, not past it
+        self.shown = max(self.shown, min(1.0, fraction))
+        self.bar.setValue(int(1000 * self.shown))
+        left = "ESTIMATING…" if eta is None else "ALMOST DONE" if eta < 1.5 else f"ABOUT {round(eta)} S LEFT" if eta < 90 else f"ABOUT {eta / 60:.1f} MIN LEFT"
+        batches = f" · BATCH {p['done']} OF {p['total']}" if p["total"] and p["step"].startswith("Gemma sorts") else ""
+        self.note.setText(f"{p['step'].upper()}{batches} · {left}")
+
     def show_draft(self, goal):
         self.draft.setEnabled(True)
+        self.ticker.stop()
+        self.last = None
+        self.bar.hide()
         if isinstance(goal, Exception):
             self.note.setText(f"COULDN'T REACH GEMMA: {goal}"[:80])
             return

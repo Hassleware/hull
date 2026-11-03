@@ -455,6 +455,14 @@ class TestGoal(unittest.TestCase):
             # and unlike statistics in meaning: a stray, dropped
             self.assertEqual(set(g["focus"]), {"statistics", "bayes theorem"})
             self.assertEqual(g["block"], ["video games", "drama"])
+            # progress: told at each step, fractions rising to 1; the first draft has no pace to go on, the next does
+            seen = []
+            c.draft_goal("learn stats", batch=2, progress=lambda **p: seen.append(p))
+            self.assertEqual([p["step"] for p in seen][:2], ["Gemma reads your goal", "Gemma sorts 5 topics"])
+            self.assertEqual((seen[-1]["step"], seen[-1]["fraction"], seen[-1]["eta"]), ("Done", 1.0, 0.0))
+            self.assertIsNotNone(seen[0]["eta"])  # the earlier draft's pace, measured and kept
+            fractions = [p["fraction"] for p in seen if p["eta"] is not None]
+            self.assertEqual(fractions, sorted(fractions))
             store.db.close()
 
 
