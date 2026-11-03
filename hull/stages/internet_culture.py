@@ -117,6 +117,7 @@ class InternetCulture:
         self.llm_on, self.health = True, "starting"  # health: starting, ready, off, down, rebooting
         self.listeners = []  # told (health, queued) on every change
         self.draining = False
+        self.drafting = False  # a goal draft has Gemma to itself: new videos wait in the queue meanwhile
 
     def warm(self):
         """load both models before Rudder sends anything (a cold Gemma takes ~50 s, past Rudder's 25); then keep an
@@ -140,6 +141,10 @@ class InternetCulture:
     # ---- Gemma: on or off, healthy or not, and its queue ----
     def gemma_ok(self):
         return self.llm_on and self.health in ("starting", "ready")
+
+    def free(self):
+        """Gemma's up and not busy drafting a goal: tagging can use it"""
+        return self.gemma_ok() and not self.drafting
 
     def queued(self):
         return self.db.execute("select count(*) from gemma_queue").fetchone()[0]
@@ -180,7 +185,7 @@ class InternetCulture:
                 if not up and self.health != "down":  # it just went: start it again once, before calling it down
                     up = self.start_ollama(wait=30)
                 self.set_health("ready" if up else "down")
-            if self.gemma_ok() and not self.draining and self.queued():
+            if self.free() and not self.draining and self.queued():
                 self.drain()
             time.sleep(every)
 
@@ -201,7 +206,7 @@ class InternetCulture:
         """work through the queue, a few jobs at a time, oldest first, while Gemma's up"""
         self.draining = True
         try:
-            while self.gemma_ok():
+            while self.free():
                 jobs = self.db.execute("select video_id, job from gemma_queue order by at limit ?", (batch,)).fetchall()
                 if not jobs:
                     break
@@ -283,7 +288,7 @@ class InternetCulture:
                 return
             said = self.said.pop(video_id)
             self.retagged.add(video_id)
-        if not self.gemma_ok():  # Gemma's off: its captions are kept (table captions), so it's done later
+        if not self.free():  # Gemma's off or drafting: its captions are kept (table captions), so it's done later
             return self.queue(video_id, "heard")
         v = self.stored(video_id)
 
@@ -306,8 +311,8 @@ class InternetCulture:
         return topics
 
     def _start(self, v):
-        """tag a video (in the background), or queue it while Gemma's off: None"""
-        if not self.gemma_ok():
+        """tag a video (in the background), or queue it while Gemma's off or drafting: None"""
+        if not self.free():
             self.queue(v.id, "tag")
             return None
         with self.lock:
@@ -337,6 +342,14 @@ class InternetCulture:
         return [known[v.id] for v in videos]
 
     def draft_goal(self, text, batch=40, progress=None):
+        """see _draft: Gemma does only this meanwhile (new videos are judged by title and queued)"""
+        self.drafting = True
+        try:
+            return self._draft(text, batch, progress)
+        finally:
+            self.drafting = False
+
+    def _draft(self, text, batch=40, progress=None):
         """a goal in the viewer's words → {"text", "focus", "block", "sorted"}: Gemma drafts what it's for and against,
         then sorts every topic on the map (in batches, side by side) into for, against or neither.
 
@@ -360,16 +373,21 @@ class InternetCulture:
 
         known = "first" in last and "batch" in last
         tell("Gemma reads your goal", 0, guess(last["first"], last["batch"]) if known else None)
-        r = self.ollama.json(self.model, GOAL.format(text=text), SIDES, system=SYSTEM)  # the subject itself; the map is sorted next
+        r = self.ollama.json(self.model, GOAL.format(text=text), SIDES, system=SYSTEM, timeout=300)  # the subject itself; the map is sorted next
         first_call = time.monotonic() - start
         pro, con = clean(r["for"]), clean(r["against"])
 
         def sort(chunk):
             # one label per topic, required: Gemma has to judge each one, and can't invent names
             labels = {"type": "object", "properties": {t: {"enum": ["for", "against", "neither"]} for t in chunk}, "required": chunk}
-            got = self.ollama.json(self.model, SORT.format(text=text, pro=", ".join(pro) or "nothing named", con=", ".join(con) or "nothing named"),
-                                   labels, system=SYSTEM)
-            return [t for t in chunk if got.get(t) == "for"], [t for t in chunk if got.get(t) == "against"]
+            for attempt in range(3):  # a batch that fails is tried again; one bad batch doesn't sink the draft
+                try:
+                    got = self.ollama.json(self.model, SORT.format(text=text, pro=", ".join(pro) or "nothing named",
+                                                                   con=", ".join(con) or "nothing named"), labels, system=SYSTEM, timeout=300)
+                    return [t for t in chunk if got.get(t) == "for"], [t for t in chunk if got.get(t) == "against"]
+                except Exception as e:
+                    log.warning("draft batch failed (try %d of 3): %s", attempt + 1, e)
+            return None
         sorting = time.monotonic()
         tell(f"Gemma sorts {len(names)} topics", 0, last["batch"] * len(chunks) + last.get("check", 1.0) if "batch" in last else None)
         futures = [self.pool.submit(sort, c) for c in chunks]
@@ -378,10 +396,13 @@ class InternetCulture:
             if "batch" in last:  # early on, a few batches say little: lean on the last draft's pace until about 6 are in
                 per = (done * per + 6 * last["batch"]) / (done + 6)
             tell(f"Gemma sorts {len(names)} topics", done, per * (len(chunks) - done) + last.get("check", 1.0))
+        missed = sum(f.result() is None for f in futures)
+        if missed == len(futures) and futures:
+            raise RuntimeError("Gemma couldn't sort any of the map")
         for f in futures:
-            p_, c_ = f.result()
-            pro += p_
-            con += c_
+            if f.result():
+                pro += f.result()[0]
+                con += f.result()[1]
         pro, con = clean(pro), clean(con)
         per = (time.monotonic() - sorting) / max(1, len(chunks))
         checking = time.monotonic()
@@ -407,7 +428,7 @@ class InternetCulture:
         self.db.executemany("insert or replace into pace values (?,?)", list(timing.items()))
         self.db.commit()
         tell("Done", len(chunks), 0.0)
-        return {"text": text.strip(), "focus": pro, "block": con, "sorted": len(names)}
+        return {"text": text.strip(), "focus": pro, "block": con, "sorted": len(names) - sum(len(c) for c, f in zip(chunks, futures) if f.result() is None)}
 
     def marks(self, names):
         """what the goal does with each topic, for the internet culture map: "focus", "block", "ask" (Gemma hasn't decided yet) or
@@ -550,7 +571,7 @@ class InternetCulture:
     def decide(self, videos):
         end = time.monotonic() + self.budget
         topics = self.topics(videos)
-        results = [self.judge(t) if t else self.by_title(v) if not self.gemma_ok() else Result("hide", "not tagged yet")
+        results = [self.judge(t) if t else self.by_title(v) if not self.free() else Result("hide", "not tagged yet")
                    for v, t in zip(videos, topics)]
         with self.lock:
             asking = list(self.asking.values())

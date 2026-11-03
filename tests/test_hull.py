@@ -103,7 +103,7 @@ class FakeOllama:
     def unload(self, model):
         self.unloaded.append(model)
 
-    def json(self, model, prompt, schema, images=(), system=""):
+    def json(self, model, prompt, schema, images=(), system="", timeout=None):
         if not self.up:
             raise urllib.error.URLError("Ollama isn't there")
         time.sleep(self.delay)
@@ -597,6 +597,38 @@ class TestStartup(unittest.TestCase):
     def test_start_with_windows_command(self):
         from hull import autostart
         self.assertIn("-m hull --tray --config", autostart.command("hull.toml"))
+
+
+class TestDraftHoldsUp(unittest.TestCase):
+    def test_a_failing_batch_is_retried_and_tagging_waits(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(tmp)
+            c = internet_culture(store, FakeOllama())
+            c.graph.attest("x", ["video games", "drama", "statistics"])
+            real, fails = c.ollama.json, [1]
+
+            def flaky(model, prompt, schema, images=(), system="", timeout=None):
+                if "neither" in str(schema) and fails[0]:  # the first sort batch times out once
+                    fails[0] -= 1
+                    raise TimeoutError("timed out")
+                if "neither" in str(schema):  # while a batch runs, a new video arrives: it waits in the queue
+                    store._keep(Video("new", title="GTA 6 trailer"), 0)
+                    seen.append(c.decide([Video("new", title="GTA 6 trailer")])[0].fields.get("queued"))
+                return real(model, prompt, schema, images, system)
+            seen = []
+            c.ollama.json = flaky
+            g = c.draft_goal("learn stats", batch=2)
+            self.assertEqual(g["sorted"], 3)  # nothing lost to the timeout
+            self.assertIn("for Gemma", seen)
+            self.assertFalse(c.drafting)
+            self.assertEqual(c.queued(), 1)
+            store.db.close()
+
+    def test_reads_json_with_extra_text_after(self):
+        import hull.ollama as ho
+        o = ho.Ollama()
+        o._post = lambda path, body, timeout=None: {"response": '{"topics": ["a"]}\n\n}'}
+        self.assertEqual(o.json("m", "p", {}), {"topics": ["a"]})
 
 
 class TestCaptions(unittest.TestCase):

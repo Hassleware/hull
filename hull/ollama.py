@@ -9,18 +9,22 @@ class Ollama:
     def __init__(self, address="http://127.0.0.1:11434", timeout=60):
         self.address, self.timeout = address.rstrip("/"), timeout
 
-    def _post(self, path, body):
+    def _post(self, path, body, timeout=None):
         req = urllib.request.Request(self.address + path, json.dumps(body).encode(), {"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=self.timeout) as r:
+        with urllib.request.urlopen(req, timeout=timeout or self.timeout) as r:
             return json.loads(r.read())
 
-    def json(self, model, prompt, schema, images=(), system=""):
+    def json(self, model, prompt, schema, images=(), system="", timeout=None):
         """a reply in the shape of a JSON schema (Ollama constrains the output to it)"""
         r = self._post("/api/generate", {
             "model": model, "prompt": prompt, "system": system, "format": schema, "stream": False, "think": False,
-            "images": [base64.b64encode(i).decode() for i in images], "options": {"temperature": 0},
-            "keep_alive": "30m"})
-        return json.loads(r["response"])
+            "images": [base64.b64encode(i).decode() for i in images],
+            # Hull's prompts are short (a sort batch is ~2k tokens): a small context window keeps Gemma quick, where
+            # Ollama otherwise gives it the model's full 128k
+            "options": {"temperature": 0, "num_ctx": 8192},
+            "keep_alive": "30m"}, timeout)
+        # Gemma sometimes adds text after the JSON ("Extra data"): read the JSON and leave the rest
+        return json.JSONDecoder().raw_decode(r["response"].strip())[0]
 
     def ping(self):
         """is Ollama answering? (a quick question that loads nothing)"""
