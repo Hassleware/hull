@@ -48,6 +48,7 @@ python -m hull run             # the same, without a window
 python -m hull stats           # what's recorded
 python -m hull leave           # take Hull's stages out of Rudder's pipeline
 python -m unittest             # tests, no Firefox or Ollama needed
+python scripts/build_exe.py    # dist/Hull.exe (needs pip install pyinstaller); keeps hull.toml and data/ next to itself
 ```
 
 ## Rules

@@ -29,6 +29,8 @@ Happy Sailing.
 **Start it:**
 1. Install [Rudder](https://github.com/Hassleware/rudder) and start its bridge.
 2. Install [Ollama](https://ollama.com), then `ollama pull gemma4:e4b` and `ollama pull embeddinggemma`.
-3. Get Hull from [the latest release](https://github.com/Hassleware/hull/releases/latest) (Python 3.11 or newer). In its folder, run `pip install -e .`, then `python -m hull`.
+3. Get **Hull.exe** from [the latest release](https://github.com/Hassleware/hull/releases/latest) and run it. It keeps its settings (`hull.toml`) and your data next to itself.
+
+   Or, with Python 3.11 or newer: in this folder, run `pip install -e .`, then `python -m hull`.
 
 How it all works: [docs/how-it-works.md](docs/how-it-works.md).
