@@ -9,10 +9,10 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QFontMetrics, QIcon
 from PySide6.QtSvgWidgets import QSvgWidget
-from PySide6.QtWidgets import (QApplication, QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu,
+from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QMessageBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu,
                                QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSlider, QSystemTrayIcon, QVBoxLayout, QWidget)
 
-from hull import autostart
+from hull import autostart, uninstall
 from hull.link import Hull
 from hull.mapview import InternetCultureMap, theme_share
 
@@ -20,7 +20,7 @@ ASSETS = Path(__file__).parent / "assets"
 PAPER, INK, FAINT, BLUE, RED = "#f2ede1", "#111111", "#d9d2c1", "#5BB8F0", "#E5484D"
 STYLE = f"""
 * {{ font-family: "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace; font-size: 12px; color: {INK}; }}
-QMainWindow, QDialog, QWidget#page, QScrollArea, QScrollArea > QWidget > QWidget {{ background: {PAPER}; }}
+QMainWindow, QDialog, QMessageBox, QWidget#page, QScrollArea, QScrollArea > QWidget > QWidget {{ background: {PAPER}; }}
 QLabel {{ background: transparent; }}
 QLabel[role="h2"] {{ font-weight: 700; letter-spacing: 1px; margin-top: 10px; }}
 QLabel[role="lbl"] {{ font-size: 10px; letter-spacing: 1px; }}
@@ -602,6 +602,35 @@ class Window(QMainWindow):
         self.refresh()
         self.told = False
 
+    def uninstall(self, app):
+        """take Hull out of Rudder and Windows startup, optionally delete its data, close (and Hull.exe deletes itself)"""
+        frozen = getattr(sys, "frozen", False)
+        box = QMessageBox(self)
+        box.setWindowTitle("Uninstall Hull")
+        box.setText("Uninstall Hull?
+
+Hull takes its stages out of Rudder (YouTube filters as before), leaves Windows startup "
+                    "and closes." + (" Hull.exe then deletes itself." if frozen else " To remove the program too, run: pip uninstall hull") +
+                    "
+
+Ollama and its models stay.")
+        wipe = QCheckBox("Also delete my internet culture map and data (hull.db, thumbnails, settings, goals)")
+        box.setCheckBox(wipe)
+        go = box.addButton("UNINSTALL", QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton("CANCEL", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        if box.clickedButton() is not go:
+            return
+        delete_data = wipe.isChecked()
+
+        def finish():  # after the engine has left Rudder (it's connected to aboutToQuit first)
+            self.hull.store.db.close()
+            uninstall.remove(self.config, self.hull.store.folder, delete_data)
+            uninstall.delete_exe_later(self.hull.store.folder if delete_data else None)
+        app.aboutToQuit.connect(finish)
+        self.tray.hide()
+        app.quit()
+
     def set_login(self, on):
         autostart.set_on(on, self.config)
         self.login.show_state(autostart.is_on())
@@ -767,6 +796,7 @@ def run(cfg, store, settings, tray=False, config="hull.toml"):
     menu.addAction(steer)
     menu.addSeparator()
     menu.addAction("Quit Hull", app.quit)
+    menu.addAction("Uninstall Hull…", lambda: window.uninstall(app))
     tray.setContextMenu(menu)
     tray.activated.connect(lambda reason: reason == QSystemTrayIcon.ActivationReason.Trigger and (window.showNormal(), window.activateWindow()))
     tray.show()

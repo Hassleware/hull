@@ -10,9 +10,11 @@ from hull.store import Store
 
 def main():
     ap = argparse.ArgumentParser(prog="hull", description="Hull: local algorithms for Rudder's pipeline.")
-    ap.add_argument("command", nargs="?", default="app", choices=["app", "run", "stats", "leave"],
+    ap.add_argument("command", nargs="?", default="app", choices=["app", "run", "stats", "leave", "uninstall"],
                     help="app: the desktop app (default); run: Hull without a window; stats: what Hull has recorded; "
-                         "leave: take Hull's stages out of Rudder's pipeline (after a crash, Rudder hides what they'd check)")
+                         "leave: take Hull's stages out of Rudder's pipeline (after a crash, Rudder hides what they'd check); "
+                         "uninstall: leave Rudder, leave Windows startup, and (--delete-data) delete your data; Hull.exe deletes itself")
+    ap.add_argument("--delete-data", action="store_true", help="with uninstall: also delete the internet culture map, thumbnails, settings and goals")
     frozen = getattr(sys, "frozen", False)  # Hull.exe: its settings and data live next to it
     home = Path(sys.executable).parent if frozen else Path.cwd()
     ap.add_argument("--config", default=str(home / "hull.toml"))
@@ -25,6 +27,14 @@ def main():
     if log:
         Path(cfg["data"]["folder"]).mkdir(parents=True, exist_ok=True)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S", **log)
+    if args.command == "uninstall":
+        from hull import uninstall
+        asyncio.run(Hull(dict(cfg, stage=[]), None).leave())
+        uninstall.remove(args.config, cfg["data"]["folder"], args.delete_data)
+        gone = uninstall.delete_exe_later(cfg["data"]["folder"] if args.delete_data else None)
+        print("Hull is out of Rudder and Windows startup" + (", its data is deleted" if args.delete_data else "") +
+              ("; Hull.exe deletes itself in a few seconds." if gone else ". To remove the program too: pip uninstall hull"))
+        return
     if args.command == "leave":
         asyncio.run(Hull(dict(cfg, stage=[]), None).leave())
         return

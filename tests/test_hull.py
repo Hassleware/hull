@@ -4,6 +4,7 @@ import asyncio, io, math, tempfile, time, unittest, urllib.error, zlib
 
 import grpc
 import numpy as np
+from pathlib import Path
 from google.protobuf.json_format import MessageToDict
 
 from hull.config import load
@@ -571,6 +572,23 @@ class TestStartup(unittest.TestCase):
                 except OSError:
                     time.sleep(0.1)
             self.assertFalse(hull.ensure_bridge())  # and now it answers
+
+    def test_uninstall_removes_startup_and_data_only_when_asked(self):
+        from hull import autostart, uninstall
+        calls = []
+        real, autostart.set_on = autostart.set_on, lambda on, config: calls.append(on)  # not the real startup list
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                data = Path(tmp) / "data"
+                Store(data).db.close()
+                uninstall.remove(Path(tmp) / "hull.toml", data, delete_data=False)
+                self.assertTrue((data / "hull.db").exists())  # kept
+                uninstall.remove(Path(tmp) / "hull.toml", data, delete_data=True)
+                self.assertFalse(data.exists())
+            self.assertEqual(calls, [False, False])  # out of Windows startup both times
+            self.assertFalse(uninstall.delete_exe_later())  # not Hull.exe: nothing to delete
+        finally:
+            autostart.set_on = real
 
     def test_start_with_windows_command(self):
         from hull import autostart
