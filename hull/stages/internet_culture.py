@@ -27,7 +27,7 @@ config: { "model": "gemma4:e4b", "embed_model": "embeddinggemma", "ollama": "htt
           "block": [], "block_at": 0.85, "block_ask": 0.7, "block_link": 0.5, "block_hops": 1,
           "focus": [], "focus_at": 0.75, "focus_ask": 0.62, "focus_link": 0.5, "focus_hops": 1 }
 """
-import concurrent.futures as cf, io, logging, threading, time
+import concurrent.futures as cf, io, json, logging, os, shutil, subprocess, sys, threading, time, urllib.error
 
 import numpy as np
 from PIL import Image
@@ -93,7 +93,9 @@ class InternetCulture:
         self.model, self.budget = config.get("model", "gemma4:e4b"), config.get("budget", 18)
         self.graph = Graph(store, self.ollama, config.get("embed_model", "embeddinggemma"), config.get("merge", 0.94))
         self.pool = cf.ThreadPoolExecutor(config.get("parallel", 6))
-        self.tagging, self.lock = {}, threading.Lock()  # video id → its tagging, while it runs
+        # video id → its tagging, while it runs. Re-entrant: a tagging that fails at once (Ollama gone) runs its done
+        # callback right away, on the thread still holding the lock
+        self.tagging, self.lock = {}, threading.RLock()
         self.block, self.block_at = [t.lower() for t in config.get("block", [])], config.get("block_at", 0.85)
         self.focus, self.focus_at = [t.lower() for t in config.get("focus", [])], config.get("focus_at", 0.75)
         self.block_ask, self.focus_ask = config.get("block_ask", 0.7), config.get("focus_ask", 0.62)
@@ -109,13 +111,139 @@ class InternetCulture:
         self.heard_chars = config.get("heard_chars", 600)
         self.said = {}  # video id → its captions heard so far, until it's tagged from them
         self.retagged = {r[0] for r in store.db.execute("select video_id from watched")}
+        # Gemma can be switched off (or crash): its work waits in a queue kept in hull.db, done once it's back
+        self.folder = store.folder
+        store.db.execute("create table if not exists gemma_queue (video_id text, job text, at real, primary key (video_id, job))")
+        self.llm_on, self.health = True, "starting"  # health: starting, ready, off, down, rebooting
+        self.listeners = []  # told (health, queued) on every change
+        self.draining = False
 
     def warm(self):
-        """load both models before Rudder sends anything (a cold Gemma takes ~50 s, past Rudder's 25)"""
-        self.ollama.timeout = 300
-        self.ollama.json(self.model, "Say ok.", {"type": "object", "properties": {"ok": {"type": "string"}}})
+        """load both models before Rudder sends anything (a cold Gemma takes ~50 s, past Rudder's 25); then keep an
+        eye on Gemma (watch_gemma)"""
+        threading.Thread(target=self.watch_gemma, daemon=True, name="gemma").start()
+        if self.llm_on:
+            self.load()
         self.anchors(self.block + self.focus)
-        self.ollama.timeout = 60
+
+    def load(self):
+        self.ollama.timeout = 300
+        try:
+            self.ollama.json(self.model, "Say ok.", {"type": "object", "properties": {"ok": {"type": "string"}}})
+        finally:
+            self.ollama.timeout = 60
+
+    # ---- Gemma: on or off, healthy or not, and its queue ----
+    def gemma_ok(self):
+        return self.llm_on and self.health in ("starting", "ready")
+
+    def queued(self):
+        return self.db.execute("select count(*) from gemma_queue").fetchone()[0]
+
+    def tell(self):
+        for fn in self.listeners:
+            fn(self.health, self.queued())
+
+    def queue(self, vid, job):
+        """Gemma's work for later: "tag" (a video to put on the map), "heard" (a watched video to tag from its captions)"""
+        self.db.execute("insert or ignore into gemma_queue values (?,?,?)", (vid, job, time.time()))
+        self.db.commit()
+        self.tell()
+
+    def set_health(self, health):
+        if health != self.health:
+            log.info("gemma: %s", health)
+            self.health = health
+            self.tell()
+
+    def set_llm(self, on):
+        """switch Gemma on or off; off also takes it off the graphics card. Hull keeps watching Rudder either way"""
+        self.llm_on = on
+        if not on:
+            try:
+                self.ollama.unload(self.model)
+            except Exception:
+                pass  # not loaded, or Ollama's not there: off either way
+        self.set_health("starting" if on else "off")
+
+    def watch_gemma(self, every=5):
+        """every few seconds: is Gemma there? If it is and work is queued, do some"""
+        while True:
+            if not self.llm_on:
+                self.set_health("off")
+            elif self.health != "rebooting":
+                self.set_health("ready" if self.ollama.ping() else "down")
+            if self.gemma_ok() and not self.draining and self.queued():
+                self.drain()
+            time.sleep(every)
+
+    def failed(self, err):
+        """a Gemma call failed: if Ollama can't be reached, Gemma's down (until the watch finds it again)"""
+        if isinstance(err, (urllib.error.URLError, ConnectionError, TimeoutError)):
+            self.set_health("down")
+
+    def stored(self, vid):
+        """a video as Hull kept it (record and thumbnail), for queued work"""
+        row = self.db.execute("select title, channel, description, fields from videos where id = ?", (vid,)).fetchone()
+        title, channel, description, fields = row or ("", "", "", "{}")
+        image = next((p.read_bytes() for p in (self.folder / "thumbs" / (vid + ext) for ext in (".jpg", ".webp")) if p.exists()), b"")
+        return Video(vid, title=title or "", channel=channel or "", description=description or "", thumbnail=image,
+                     fields=json.loads(fields or "{}"))
+
+    def drain(self, batch=6):
+        """work through the queue, a few jobs at a time, oldest first, while Gemma's up"""
+        self.draining = True
+        try:
+            while self.gemma_ok():
+                jobs = self.db.execute("select video_id, job from gemma_queue order by at limit ?", (batch,)).fetchall()
+                if not jobs:
+                    break
+                futures = {self.pool.submit(self.do, vid, job): (vid, job) for vid, job in jobs}
+                for f in cf.as_completed(futures):
+                    vid, job = futures[f]
+                    if f.exception():
+                        self.failed(f.exception())
+                        log.warning("queued %s for %s failed: %s", job, vid, f.exception())
+                    else:
+                        self.db.execute("delete from gemma_queue where video_id = ? and job = ?", (vid, job))
+                        self.db.commit()
+                self.tell()
+                if any(f.exception() for f in futures):
+                    break  # try again on the next watch
+        finally:
+            self.draining = False
+
+    def do(self, vid, job):
+        if job == "heard":
+            said = " ".join(r[0] for r in self.db.execute("select text from captions where video_id = ? order by start_ms", (vid,)))
+            return self.retag(self.stored(vid), said)
+        if self.graph.topics_of(vid) is None:
+            return self.tag(self.stored(vid))
+
+    def reboot(self):
+        """restart Ollama and load Gemma again (after a crash); the queue drains once it's back"""
+        self.set_health("rebooting")
+        try:
+            if sys.platform == "win32":
+                for image in ("ollama app.exe", "ollama.exe"):
+                    subprocess.run(["taskkill", "/IM", image, "/F"], capture_output=True)
+                app = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Ollama", "ollama app.exe")
+                command = [app] if os.path.exists(app) else [shutil.which("ollama") or "ollama", "serve"]
+                subprocess.Popen(command, creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW, close_fds=True)
+            else:
+                subprocess.run(["pkill", "-f", "ollama serve"], capture_output=True)
+                subprocess.Popen([shutil.which("ollama") or "ollama", "serve"], start_new_session=True,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            for _ in range(60):  # up to a minute for Ollama to answer
+                if self.ollama.ping():
+                    break
+                time.sleep(1)
+            if self.llm_on:
+                self.load()
+            self.set_health("ready" if self.ollama.ping() else "down")
+        except Exception as e:
+            log.warning("couldn't reboot Gemma: %s", e)
+            self.set_health("down")
 
     def tag(self, v, said=""):
         known = ", ".join(self.graph.nearest(self.graph.embed([f"{v.title} — {v.channel}"])[0])) or "(none yet)"
@@ -125,8 +253,8 @@ class InternetCulture:
         return self.graph.attest(v.id, r["topics"])
 
     def seen(self, v):
-        """a video Rudder decided or you rated: tagged in the background if it isn't yet, so the map holds everything
-        you're shown or rate, whichever stage decided it"""
+        """a video Rudder decided or you rated: tagged in the background if it isn't yet (queued while Gemma's off), so
+        the map holds everything you're shown or rate, whichever stage decided it"""
         if v.title and self.graph.topics_of(v.id) is None:
             return self._start(v)
 
@@ -140,19 +268,33 @@ class InternetCulture:
                 return
             said = self.said.pop(video_id)
             self.retagged.add(video_id)
-        row = self.db.execute("select title, channel, description from videos where id = ?", (video_id,)).fetchone()
-        v = Video(video_id, *(row or ("", "", "")))
+        if not self.gemma_ok():  # Gemma's off: its captions are kept (table captions), so it's done later
+            return self.queue(video_id, "heard")
+        v = self.stored(video_id)
 
         def work():
-            topics = self.tag(v, said)
-            self.db.execute("insert or replace into watched values (?,?,?)", (video_id, time.time(), "; ".join(topics)))
-            self.db.commit()
-            log.info("watched %s: %s", v.title or video_id, ", ".join(topics))
+            try:
+                return self.retag(v, said)
+            except Exception as e:
+                self.failed(e)
+                self.queue(video_id, "heard")
+                raise
         f = self.pool.submit(work)
         f.add_done_callback(lambda f: f.exception() and log.warning("couldn't tag %s from its captions: %s", video_id, f.exception()))
         return f
 
+    def retag(self, v, said):
+        topics = self.tag(v, said)
+        self.db.execute("insert or replace into watched values (?,?,?)", (v.id, time.time(), "; ".join(topics)))
+        self.db.commit()
+        log.info("watched %s: %s", v.title or v.id, ", ".join(topics))
+        return topics
+
     def _start(self, v):
+        """tag a video (in the background), or queue it while Gemma's off: None"""
+        if not self.gemma_ok():
+            self.queue(v.id, "tag")
+            return None
         with self.lock:
             f = self.tagging.get(v.id)
             if f is None:
@@ -165,12 +307,15 @@ class InternetCulture:
             self.tagging.pop(vid, None)
         if f.exception():
             log.warning("couldn't tag %s: %s", vid, f.exception())
+            self.failed(f.exception())
+            if not self.gemma_ok():
+                self.queue(vid, "tag")  # Gemma went down meanwhile: later
 
     def topics(self, videos):
         """each video's topics, or None if not tagged within the budget"""
         # ponytail: tagging can use the whole budget, leaving Gemma's judgements none; split it if both often run long
         known = {v.id: self.graph.topics_of(v.id) for v in videos}
-        todo = {v.id: self._start(v) for v in videos if known[v.id] is None}
+        todo = {v.id: f for v in videos if known[v.id] is None and (f := self._start(v)) is not None}
         cf.wait(todo.values(), self.budget)
         for vid, f in todo.items():
             known[vid] = f.result() if f.done() and not f.exception() else None
@@ -298,11 +443,11 @@ class InternetCulture:
             self.asking.pop((topic, anchor), None)
 
     def verdict(self, topic, anchor):
-        """(part_of, why) once Gemma has answered; None while it thinks (and starts it thinking)"""
+        """(part_of, why) once Gemma has answered; None while it thinks (and starts it thinking, if it's on)"""
         with self.lock:
             if (topic, anchor) in self.verdicts:
                 return self.verdicts[(topic, anchor)]
-            if (topic, anchor) not in self.asking:
+            if (topic, anchor) not in self.asking and self.gemma_ok():
                 f = self.asking[(topic, anchor)] = self.pool.submit(self.ask, topic, anchor)
                 f.add_done_callback(lambda f: f.exception() and log.warning("couldn't ask about %s: %s", topic, f.exception()))
         return None
@@ -368,10 +513,30 @@ class InternetCulture:
                 fields["focus"] += f" (gemma: {v[1]})"
         return Result(fields=fields)
 
+    def by_title(self, v):
+        """while Gemma's off: a video not on the map yet, judged by its title's meaning alone (embeddinggemma) against
+        your goals' topics; Gemma tags it properly once it's back (it's queued)"""
+        fields = {"queued": "for Gemma"}
+        try:
+            vec = self.graph.embed([f"{v.title} — {v.channel}"])[0]
+            if self.block:
+                names, vecs = self.anchors(self.block)
+                sims = vecs @ vec
+                if sims.max() >= self.block_ask:
+                    return Result("hide", f"near {names[int(sims.argmax())]} by its title (Gemma is off)", fields)
+            if self.focus:
+                names, vecs = self.anchors(self.focus)
+                if (vecs @ vec).max() < self.focus_ask:
+                    return Result("hide", "off focus by its title (Gemma is off)", fields)
+            return Result(fields=fields)
+        except Exception as e:  # not even the title can be read: strict
+            return Result("hide", f"Gemma is off and its title can't be read ({e})"[:150], fields)
+
     def decide(self, videos):
         end = time.monotonic() + self.budget
         topics = self.topics(videos)
-        results = [self.judge(t) if t else Result("hide", "not tagged yet") for t in topics]
+        results = [self.judge(t) if t else self.by_title(v) if not self.gemma_ok() else Result("hide", "not tagged yet")
+                   for v, t in zip(videos, topics)]
         with self.lock:
             asking = list(self.asking.values())
         if asking:  # Gemma's thinking about some: wait for it, within the budget
@@ -383,7 +548,8 @@ class InternetCulture:
         """for Hull's panel in Rudder's popup: [(title, [(label, value)])]"""
         s = self.graph.stats()
         rules = "; ".join(filter(None, [self.focus and "focus: " + ", ".join(self.focus), self.block and "block: " + ", ".join(self.block)]))
-        return [(f"Internet culture: {s['topics']} topics from {s['tagged']} videos{f' ({rules})' if rules else ''}. Most seen:", s["top"])]
+        gemma = "" if self.gemma_ok() else f" Gemma is {'off' if not self.llm_on else 'not responding'}: {self.queued()} videos queued."
+        return [(f"Internet culture: {s['topics']} topics from {s['tagged']} videos{f' ({rules})' if rules else ''}.{gemma} Most seen:", s["top"])]
 
     def describe(self):
         s = self.graph.stats()

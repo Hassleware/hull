@@ -1,6 +1,6 @@
 """Hull's checks, no Firefox needed. Run: python -m unittest
 A fake Rudder (an in-process gRPC server speaking Rudder's real contract) stands in for Rudder's bridge."""
-import asyncio, io, math, tempfile, time, unittest, zlib
+import asyncio, io, math, tempfile, time, unittest, urllib.error, zlib
 
 import grpc
 import numpy as np
@@ -94,9 +94,17 @@ class FakeOllama:
     SAME = {"grand theft auto vi": "gta vi"}  # names embeddinggemma would put together
 
     def __init__(self, delay=0):
-        self.delay, self.calls = delay, 0
+        self.delay, self.calls, self.up, self.unloaded = delay, 0, True, []
+
+    def ping(self):
+        return self.up
+
+    def unload(self, model):
+        self.unloaded.append(model)
 
     def json(self, model, prompt, schema, images=(), system=""):
+        if not self.up:
+            raise urllib.error.URLError("Ollama isn't there")
         time.sleep(self.delay)
         self.calls += 1
         if "What's said in it" in prompt:
@@ -501,6 +509,49 @@ class TestTaste(unittest.TestCase):
             store.rated(Video("d2", title="Another case", channel="Crime"), False)
             r = t.decide([Video("z", title="Totally new words here", channel="Pod")])[0]
             self.assertEqual(r.why, "you've disliked 2 videos about true crime")
+            store.db.close()
+
+
+class TestGemmaSwitch(unittest.TestCase):
+    def test_off_queues_judges_by_title_and_catches_up(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(tmp)
+            c = internet_culture(store, FakeOllama())
+            health = []
+            c.listeners.append(lambda h, q: health.append((h, q)))
+            c.block = ["video games"]
+            c.set_llm(False)
+            self.assertEqual((c.health, c.ollama.unloaded), ("off", ["gemma4:e4b"]))  # off the graphics card
+            store._keep(Video("a", title="GTA 6 trailer"), 0)
+            store._keep(Video("b", title="Bayes in 10 minutes"), 0)
+            rs = c.decide([Video("a", title="GTA 6 trailer"), Video("b", title="Bayes in 10 minutes")])
+            self.assertEqual(c.ollama.calls, 0)  # no Gemma
+            self.assertEqual(c.queued(), 2)
+            self.assertEqual([r.fields.get("queued") for r in rs], ["for Gemma", "for Gemma"])  # judged by title meanwhile
+            c.heard("b", "x" * 700)  # a watched video's captions: queued too
+            self.assertEqual(c.queued(), 3)
+            self.assertEqual(health[-1], ("off", 3))
+            c.set_llm(True)
+            c.drain()  # what the watch does once Gemma's back
+            self.assertEqual(c.queued(), 0)
+            self.assertEqual(c.graph.topics_of("a"), ["gta vi", "rockstar games", "video games"])
+            store.db.close()
+
+    def test_a_crash_is_noticed_and_its_work_queued(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(tmp)
+            c = internet_culture(store, FakeOllama())
+            c.ollama.up = False  # Ollama crashed
+            store._keep(Video("a", title="GTA 6 trailer"), 0)
+            r = c.decide([Video("a", title="GTA 6 trailer")])[0]
+            self.assertEqual(c.health, "down")
+            self.assertEqual(r.fields.get("queued"), "for Gemma")  # judged by its title instead, and queued
+            c.decide([Video("a", title="GTA 6 trailer")])  # now known to be down: queued, by title
+            self.assertEqual(c.queued(), 1)
+            c.ollama.up = True
+            c.set_health("ready")
+            c.drain()
+            self.assertEqual((c.queued(), c.graph.topics_of("a")), (0, ["gta vi", "rockstar games", "video games"]))
             store.db.close()
 
 

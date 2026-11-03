@@ -50,6 +50,7 @@ Hull checks every video Rudder filters (the home page, the sidebar beside a vide
   - *Rudder filtering* is Rudder's own on/off switch, the same as in Rudder's popup.
 
   Neither moves anything already on the YouTube page: the change applies to the videos not shown yet.
+- **Gemma's switch.** *Gemma* turns the language model on or off; off also takes it off the graphics card (for games). Hull keeps watching everything from Rudder either way (videos, what's shown, captions, likes). While Gemma is off, or not responding, its work waits in a queue kept in `hull.db` (`gemma_queue`: videos to tag, watched videos to tag from their captions); videos not on your map yet are judged by their title's meaning alone (embeddinggemma), and anything that can't be read at all is hidden. When Gemma's back, Hull works through the queue in the background. Hull checks Ollama every 5 seconds: the row says READY, LOADING, OFF, NOT RESPONDING or REBOOTING, and how many videos are queued. *Reboot* restarts Ollama and loads Gemma again.
 - **Your goals.** As many as you like, all at once, one row each with *Edit* and ×. Write what you want YouTube for and *Draft with Gemma*: a window opens with the goal's topics, *for* (show only what's near) and *against* (never show what's near), to remove or add before *Apply*. Goals add up; when two disagree about a topic, that's fine, and against wins for it. They're kept in `data/settings.json` and replace the internet culture stage's `focus` and `block` from `hull.toml`. The sidebar never scrolls: the title stays on top.
 - **Your internet culture map.**
   - Every topic is a pin, sized by how many videos you've seen on it, and topics that share videos are joined by lines.
@@ -155,6 +156,8 @@ Everything is in `data/`:
   | `topics`, `video_topics` | The internet culture graph: topics with their embeddings, and which videos attest to which |
   | `judgements` | Gemma's answers to "is X part of Y?" |
   | `ratings` | Your likes and dislikes |
+  | `gemma_queue` | Gemma's work waiting while it's off or down |
+  | `pace` | How long the last goal draft's steps took, for its time estimate |
   | `taste_vecs` | How embeddinggemma reads each rated or judged video, for the taste stage |
   | `captions`, `watched` | What was said in the videos you watched, line by line; when each was tagged again from it |
 

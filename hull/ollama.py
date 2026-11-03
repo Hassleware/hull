@@ -22,6 +22,18 @@ class Ollama:
             "keep_alive": "30m"})
         return json.loads(r["response"])
 
+    def ping(self):
+        """is Ollama answering? (a quick question that loads nothing)"""
+        try:
+            with urllib.request.urlopen(self.address + "/api/version", timeout=2) as r:
+                return r.status == 200
+        except Exception:
+            return False
+
+    def unload(self, model):
+        """take a model out of memory now (frees the graphics card)"""
+        self._post("/api/generate", {"model": model, "keep_alive": 0})
+
     def embed(self, model, texts):
         """unit-length vectors (float32), one row per text"""
         texts = list(texts)

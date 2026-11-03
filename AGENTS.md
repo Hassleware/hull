@@ -19,7 +19,7 @@ Read `README.md` (what Hull is) and `docs/how-it-works.md` (how) first.
 | `hull/link.py` | The link to Rudder: warms models, joins and leaves the pipeline (`remember: false`), serves stage requests, records videos (WatchVideos), what's shown (WatchShown) and what's said in watched videos (WatchCaptions), draws the popup panel, reconnects; thread-safe `set_steering`, `set_filtering`, `set_goal` for the app |
 | `hull/stages/` | Stage kinds; `KINDS` in `__init__.py` lists them, and the interface |
 | `hull/stages/repeats.py` | Shown once, never again: Bloom filter of ids plus near-duplicate titles and thumbnails |
-| `hull/stages/internet_culture.py` | Gemma tags videos into the graph; block, focus, and Gemma's in-between judgements |
+| `hull/stages/internet_culture.py` | Gemma tags videos into the graph (or queues them while Gemma's off or down: `gemma_queue`, drained by `watch_gemma`; `reboot` restarts Ollama); block, focus, goal drafts, Gemma's in-between judgements |
 | `hull/stages/rules.py` | Regular expressions |
 | `hull/stages/taste.py` | Learns from your likes and dislikes (Rudder's WatchFeedback): nearest rated videos by embeddinggemma, and a tally of disliked topics |
 | `hull/graph.py` | The internet culture graph: topics, merging, neighbours, relatedness |

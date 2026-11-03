@@ -15,7 +15,7 @@ strict, until Hull runs again or `python -m hull leave`.
 
 The desktop app (hull/app.py) runs this on a thread of its own and calls the thread-safe methods at the bottom.
 """
-import asyncio, hashlib, json, logging, time
+import asyncio, hashlib, json, logging, threading, time
 from pathlib import Path
 
 import grpc
@@ -52,7 +52,13 @@ class Hull:
         self.goals = (settings.get("goals") if settings else None) or ([old] if old and (old.get("focus") or old.get("block")) else [])
         if self.goals:
             self._use_goals(self.goals)
-        self.status = {"rudder": False, "firefox": False, "filtering": False, "steering": False, "warming": False, "stages": []}
+        self.status = {"rudder": False, "firefox": False, "filtering": False, "steering": False, "warming": False, "stages": [],
+                       "gemma": "starting", "queued": 0}
+        self.llm = settings.get("llm", True) if settings else True  # Gemma on or off (the app's switch)
+        for st in self.stages.values():
+            if hasattr(st, "listeners"):
+                st.llm_on = self.llm
+                st.listeners.append(lambda health, queued: self._set(gemma=health, queued=queued))
         self.listeners = []  # called with the status (on Hull's thread) whenever it changes
         self.loop, self.rudder = None, None
 
@@ -276,6 +282,21 @@ class Hull:
             self.settings.update(steering=on)
         self._soon(lambda r: self.join(r) if on else self.leave_pipeline(r))
         self._soon(lambda r: r.SetPanel(self.panel_message()))
+
+    def set_llm(self, on):
+        """switch Gemma on or off; while off its work is queued, and Hull still watches all of Rudder"""
+        self.llm = on
+        if self.settings:
+            self.settings.update(llm=on)
+        for st in self.stages.values():
+            if hasattr(st, "set_llm"):
+                threading.Thread(target=st.set_llm, args=(on,), daemon=True).start()  # unloading can take a moment
+
+    def reboot_llm(self):
+        """restart Ollama and load Gemma again"""
+        for st in self.stages.values():
+            if hasattr(st, "reboot"):
+                threading.Thread(target=st.reboot, daemon=True).start()
 
     def set_filtering(self, on):
         """Rudder's own on/off switch"""

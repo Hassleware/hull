@@ -367,6 +367,12 @@ class Goals(QFrame):
                 self.drafted.emit(e)
         threading.Thread(target=work, daemon=True).start()
 
+    def gemma(self, up):
+        """drafting needs Gemma"""
+        busy = self.ticker.isActive()
+        self.draft.setEnabled(up and not busy)
+        self.draft.setToolTip("" if up else "Gemma is off or not responding: switch it on, or reboot it")
+
     def show_progress(self, p):
         self.last = (p, time.monotonic())
         self.tick()
@@ -521,14 +527,23 @@ class Window(QMainWindow):
         side.addWidget(self.banner)
         self.steer = Switch("HULL STEERS RUDDER", hull.set_steering)
         self.filtering = Switch("RUDDER FILTERING", hull.set_filtering)
+        self.gemma = Switch("GEMMA", hull.set_llm)
+        self.reboot = QPushButton("REBOOT")
+        self.reboot.setToolTip("Restart Ollama and load Gemma again")
+        self.reboot.setStyleSheet("border-width: 0 0 0 2px;")
+        self.reboot.clicked.connect(hull.reboot_llm)
+        self.gemma.layout().insertWidget(1, self.reboot)
         side.addWidget(self.steer)
         side.addWidget(self.filtering)
+        side.addWidget(self.gemma)
         self.numbers = Numbers(["recorded", "shown", "watched", "hull hid"])
         side.addWidget(self.numbers)
         self.internet_culture = next((st for st in hull.stages.values() if hasattr(st, "graph")), None)
+        self.goals_box = None
         if self.internet_culture:
             side.addWidget(label("YOUR GOALS", "h2"))
-            side.addWidget(Goals(hull, self.internet_culture, self.goal_applied))
+            self.goals_box = Goals(hull, self.internet_culture, self.goal_applied)
+            side.addWidget(self.goals_box)
             self.goal_applied.connect(lambda: (setattr(self.map, "key", None), self.redraw()))
         self.side = side
         side.addStretch(1)
@@ -586,6 +601,14 @@ class Window(QMainWindow):
         connected = s["rudder"] and s["firefox"]
         self.steer.show_state(s["steering"] if connected else self.hull.steering, connected)
         self.filtering.show_state(s["filtering"], connected)
+        g, q = s.get("gemma", "starting"), s.get("queued", 0)
+        self.gemma.show_state(self.hull.llm)
+        self.gemma.text.setText({"ready": "GEMMA · READY", "starting": "GEMMA · LOADING…", "off": "GEMMA · OFF", "down": "GEMMA · NOT RESPONDING",
+                                 "rebooting": "GEMMA · REBOOTING…"}.get(g, "GEMMA") + (f" · {q} QUEUED" if q else ""))
+        self.gemma.text.setStyleSheet(f"font-weight: 700; padding: 0 8px; color: {RED if g == 'down' else INK};")
+        self.reboot.setEnabled(g != "rebooting")
+        if self.goals_box:
+            self.goals_box.gemma(g in ("ready", "starting") and self.hull.llm)
         self.tray.setIcon(QIcon(str(ASSETS / ("hull-icon.svg" if s["steering"] else "hull-icon-off.svg"))))
         self.tray.setToolTip("Hull: steering Rudder" if s["steering"] else "Hull: watching while Rudder filters on its own")
         if hasattr(self, "steer_action"):  # the tray menu's switch
