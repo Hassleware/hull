@@ -28,7 +28,7 @@ Happy Sailing.
 
 **Start it:**
 1. Install [Ollama](https://ollama.com), then `ollama pull gemma4:e4b` and `ollama pull embeddinggemma`.
-2. Get **Hull.exe** and **rudder-1.2.1.xpi** from [the latest release](https://github.com/Hassleware/hull/releases/latest). Open the `.xpi` in Firefox to add Rudder.
+2. Get **Hull.exe** and **rudder-1.3.0.xpi** from [the latest release](https://github.com/Hassleware/hull/releases/latest). Open the `.xpi` in Firefox to add Rudder.
 3. Run Hull.exe. It starts Ollama and Rudder's bridge itself if they aren't running, and keeps its settings (`hull.toml`) and your data next to itself. Switch on *Start with Windows* and it opens in the tray every time you log in.
 
    Or, with Python 3.11 or newer: in this folder, run `pip install -e .`, then `python -m hull`.
