@@ -134,9 +134,10 @@ It names 3 to 6 topics, from the subject up to the field. For example, "I spent 
 
 A topic that mostly lives around your goal joins it: around "video games", Roblox, Frostpunk and League of Legends join. A big separate subject that touched it once stays out: music only shares a game soundtrack, 1 of its 25 videos. A video with a topic in the block area is hidden. With a focus, a video with a topic in the focus area is shown.
 
-*Draft with Gemma* drafts both sides of the goal and covers your whole map:
+*Draft with Gemma* drafts both sides of the goal and covers the part of your map it's about:
 1. Gemma lists what the goal is for (the field, its kinds, examples, people and communities) and what it's against (what you don't want and what pulls you away from it).
-2. Then every topic on your map gets a label, for, against or neither, in batches side by side (about a minute for a few hundred topics).
+2. Hull picks the topics nearest those: the 600 closest in meaning (one matrix multiply over every topic's vector: 12 ms for 2,000 topics, 24 ms for 100,000), plus up to 300 that share videos with the closest 100 (meaning alone misses some: "wafer-scale accelerators" is far from "ai" by its name, but on the same videos). Then each of those gets a label, for, against or neither, in batches side by side. Topics further off are judged as their videos arrive (below), so a draft takes about the same time on any size of map: on 2,000 topics, 16 Gemma calls instead of 52.
+   Every label is kept (`draft_labels`, by the goal's words). Drafting the same goal again sorts only topics it hasn't seen yet, and a draft that stops partway picks up where it left off. Change the goal's words for a fresh draft. `draft_near` and `draft_linked` in the internet culture stage's settings change the 600 and 300.
 3. Your map's consensus checks Gemma: a topic labelled "for" stays only if it's clearly alike in meaning or sits in the area around clearly-wanted topics, and a topic labelled "against" that sits in that area is dropped unless you named it.
 
 A video is then decided by its topics: the goal's own topics are fixed, then the areas around them; with both sides, the video's topics vote, the most specific counting most (a GTA trailer is a game video even if trailers are against the goal); with only things to avoid, any one of them hides it.
@@ -171,6 +172,7 @@ Everything is in `data/`:
   | `ratings` | Your likes and dislikes |
   | `gemma_queue` | Gemma's work waiting while it's off or down |
   | `pace` | How long the last goal draft's steps took, for its time estimate |
+  | `draft_labels` | Gemma's label for each topic, per goal, kept for the next draft of it |
   | `taste_vecs` | How embeddinggemma reads each rated or judged video, for the taste stage |
   | `captions`, `watched` | What was said in the videos you watched, line by line; when each was tagged again from it |
 

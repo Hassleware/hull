@@ -404,7 +404,8 @@ class Goals(QFrame):
             self.note.setText(f"COULDN'T REACH GEMMA: {goal}"[:80])
             return
         self.note.setText("")
-        w = GoalWindow(self, goal, f"GEMMA SORTED {goal.get('sorted', 0)} MAP TOPICS: {len(goal['focus'])} FOR, {len(goal['block'])} AGAINST. "
+        w = GoalWindow(self, goal, f"GEMMA SORTED THE {goal.get('sorted', 0)} OF {goal.get('map', 0)} MAP TOPICS NEAREST YOUR GOAL: "
+                                   f"{len(goal['focus'])} FOR, {len(goal['block'])} AGAINST. "
                                    "WITH ANY 'FOR' TOPIC, ONLY WHAT'S NEAR THEM SHOWS.")
         if w.exec():
             self.text.clear()

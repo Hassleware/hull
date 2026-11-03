@@ -599,6 +599,27 @@ class TestStartup(unittest.TestCase):
         self.assertIn("-m hull --tray --config", autostart.command("hull.toml"))
 
 
+class TestDraftScales(unittest.TestCase):
+    def test_sorts_only_the_nearest_and_remembers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(tmp)
+            c = internet_culture(store, FakeOllama())
+            c.graph.attest("x", ["video games", "drama", "statistics"])
+            c.graph.attest("y", ["cooking", "baking"])
+            c.graph.attest("z", ["statistics", "baking"])
+            c.draft_near, c.draft_linked = 1, 1
+            # the closest by meaning, then one that shares its videos (baking: on half of statistics' videos)
+            self.assertEqual(c.nearest_topics(["statistics"]), ["statistics", "baking"])
+            c.draft_near = 3
+            g = c.draft_goal("learn stats", batch=2)
+            self.assertEqual((g["sorted"], g["asked"], g["map"]), (4, 4, 5))  # 3 nearest + 1 on the same videos
+            calls = c.ollama.calls
+            g2 = c.draft_goal("  Learn   stats ", batch=2)  # the same goal again: all remembered
+            self.assertEqual((g2["asked"], c.ollama.calls - calls), (0, 1))  # only Gemma's first read of the goal
+            self.assertEqual((g2["focus"], g2["block"]), (g["focus"], g["block"]))
+            store.db.close()
+
+
 class TestDraftHoldsUp(unittest.TestCase):
     def test_a_failing_batch_is_retried_and_tagging_waits(self):
         with tempfile.TemporaryDirectory() as tmp:

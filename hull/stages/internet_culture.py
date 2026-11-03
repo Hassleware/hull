@@ -93,6 +93,8 @@ class InternetCulture:
         self.model, self.budget = config.get("model", "gemma4:e4b"), config.get("budget", 18)
         self.graph = Graph(store, self.ollama, config.get("embed_model", "embeddinggemma"), config.get("merge", 0.94))
         self.pool = cf.ThreadPoolExecutor(config.get("parallel", 6))
+        # a goal draft sorts the topics nearest the goal, not the whole map: its cost stays the same as the map grows
+        self.draft_near, self.draft_linked = config.get("draft_near", 600), config.get("draft_linked", 300)
         # video id → its tagging, while it runs. Re-entrant: a tagging that fails at once (Ollama gone) runs its done
         # callback right away, on the thread still holding the lock
         self.tagging, self.lock = {}, threading.RLock()
@@ -350,16 +352,23 @@ class InternetCulture:
             self.drafting = False
 
     def _draft(self, text, batch=40, progress=None):
-        """a goal in the viewer's words → {"text", "focus", "block", "sorted"}: Gemma drafts what it's for and against,
-        then sorts every topic on the map (in batches, side by side) into for, against or neither.
+        """a goal in the viewer's words → {"text", "focus", "block", "sorted", "asked", "map"}: Gemma drafts what it's
+        for and against, then sorts the map's topics nearest those (in batches, side by side) into for, against or
+        neither. Nearest: see nearest_topics. Topics further off are left to judging as videos arrive (nearness, then
+        Gemma's in-between judgements), so a draft costs about the same on any size of map. Each label is kept
+        (draft_labels, by the goal's words): drafting the same goal again sorts only topics it hasn't seen, and a draft
+        that stops partway picks up where it left off.
 
         progress(step, done, total, fraction, eta): told as it goes. Times are measured: the draft's first call, then
         the batches as they finish (their real pace now, alongside whatever else Gemma is doing); before any have
         finished, the pace of the last draft (kept in hull.db); eta is None until there's something to go on."""
         clean = lambda xs: list(dict.fromkeys(x.strip().lower() for x in xs if x.strip()))
-        names = [r[0] for r in self.db.execute("select name from topics order by videos desc")]
-        chunks = [names[i:i + batch] for i in range(0, len(names), batch)]
+        everything = len(self.graph.names)
+        guessed = min(everything, self.draft_near + self.draft_linked)  # how many it'll sort, until the first call says
+        chunks = [None] * -(-guessed // batch)
         self.db.execute("create table if not exists pace (what text primary key, seconds real)")
+        self.db.execute("create table if not exists draft_labels (goal text, topic text, label text, primary key (goal, topic))")
+        key = " ".join(text.lower().split())
         last = dict(self.db.execute("select what, seconds from pace").fetchall())  # the last draft's measured times
         start = time.monotonic()
         # the whole draft in seconds: the first call, the batches (their pace × how many), the check against the map
@@ -377,6 +386,11 @@ class InternetCulture:
         first_call = time.monotonic() - start
         pro, con = clean(r["for"]), clean(r["against"])
 
+        names = self.nearest_topics([text] + pro + con)
+        known = dict(self.db.execute("select topic, label from draft_labels where goal = ?", (key,)).fetchall())
+        todo = [t for t in names if t not in known]
+        chunks = [todo[i:i + batch] for i in range(0, len(todo), batch)]
+
         def sort(chunk):
             # one label per topic, required: Gemma has to judge each one, and can't invent names
             labels = {"type": "object", "properties": {t: {"enum": ["for", "against", "neither"]} for t in chunk}, "required": chunk}
@@ -384,18 +398,22 @@ class InternetCulture:
                 try:
                     got = self.ollama.json(self.model, SORT.format(text=text, pro=", ".join(pro) or "nothing named",
                                                                    con=", ".join(con) or "nothing named"), labels, system=SYSTEM, timeout=300)
+                    self.db.executemany("insert or replace into draft_labels values (?,?,?)",
+                                        [(key, t, got.get(t, "neither")) for t in chunk])
+                    self.db.commit()
                     return [t for t in chunk if got.get(t) == "for"], [t for t in chunk if got.get(t) == "against"]
                 except Exception as e:
                     log.warning("draft batch failed (try %d of 3): %s", attempt + 1, e)
             return None
         sorting = time.monotonic()
-        tell(f"Gemma sorts {len(names)} topics", 0, last["batch"] * len(chunks) + last.get("check", 1.0) if "batch" in last else None)
+        step = f"Gemma sorts {len(todo)} topics" + (f" ({len(names) - len(todo)} remembered)" if len(todo) < len(names) else "")
+        tell(step, 0, last["batch"] * len(chunks) + last.get("check", 1.0) if "batch" in last else None)
         futures = [self.pool.submit(sort, c) for c in chunks]
         for done, _ in enumerate(cf.as_completed(futures), 1):
             per = (time.monotonic() - sorting) / done  # the measured pace: batches finish this often, side by side
             if "batch" in last:  # early on, a few batches say little: lean on the last draft's pace until about 6 are in
                 per = (done * per + 6 * last["batch"]) / (done + 6)
-            tell(f"Gemma sorts {len(names)} topics", done, per * (len(chunks) - done) + last.get("check", 1.0))
+            tell(step, done, per * (len(chunks) - done) + last.get("check", 1.0))
         missed = sum(f.result() is None for f in futures)
         if missed == len(futures) and futures:
             raise RuntimeError("Gemma couldn't sort any of the map")
@@ -403,8 +421,10 @@ class InternetCulture:
             if f.result():
                 pro += f.result()[0]
                 con += f.result()[1]
+        pro += [t for t in names if known.get(t) == "for"]
+        con += [t for t in names if known.get(t) == "against"]
         pro, con = clean(pro), clean(con)
-        per = (time.monotonic() - sorting) / max(1, len(chunks))
+        per = (time.monotonic() - sorting) / len(chunks) if chunks else last.get("batch")
         checking = time.monotonic()
         tell("Checking against your map", len(chunks), last.get("check", 1.0))
         # Gemma mislabels some map topics "for" (fatbergs for a gamer): keep one only if it's clearly alike in meaning
@@ -425,10 +445,27 @@ class InternetCulture:
         pro = [x for x in pro if x not in both or x in first[0]]
         con = [x for x in con if x not in both or (x in first[1] and x not in first[0])]
         timing = {"first": first_call, "batch": per, "check": time.monotonic() - checking}
-        self.db.executemany("insert or replace into pace values (?,?)", list(timing.items()))
+        self.db.executemany("insert or replace into pace values (?,?)", [(k, v) for k, v in timing.items() if v is not None])
         self.db.commit()
         tell("Done", len(chunks), 0.0)
-        return {"text": text.strip(), "focus": pro, "block": con, "sorted": len(names) - sum(len(c) for c, f in zip(chunks, futures) if f.result() is None)}
+        missed = sum(len(c) for c, f in zip(chunks, futures) if f.result() is None)
+        return {"text": text.strip(), "focus": pro, "block": con, "sorted": len(names) - missed,
+                "asked": len(todo) - missed, "map": everything}
+
+    def nearest_topics(self, seeds):
+        """the map's topics a goal is about: the draft_near closest in meaning to its words (one matrix multiply over
+        every topic's vector), then up to draft_linked that share videos with the closest 100 (meaning alone misses
+        some: "cerebras cs-2" is far from "ai" by its name, but on the same videos). Closest first."""
+        g = self.graph
+        if not g.names:
+            return []
+        want = g.embed(list(dict.fromkeys(s for s in seeds if s.strip())))
+        sims = (g.vecs @ want.T).max(1)
+        order = np.argsort(-sims)
+        near = [g.names[i] for i in order[:self.draft_near]]
+        seen = set(near)
+        linked = [u for t in near[:100] for u, share in g.neighbours(t) if share >= 0.3 and u not in seen]
+        return near + list(dict.fromkeys(linked))[:self.draft_linked]
 
     def marks(self, names):
         """what the goal does with each topic, for the internet culture map: "focus", "block", "ask" (Gemma hasn't decided yet) or
