@@ -113,28 +113,39 @@ class Switch(QFrame):
         self.off.setEnabled(enabled)
 
 
-class Banner(QLabel):
-    """the one thing to read first: is Hull steering Rudder right now?"""
+class Banner(QFrame):
+    """the one thing to read first: is Hull steering Rudder right now? While Rudder can't be reached (its bridge or
+    Firefox), Rudder's own rudder shows beside the message"""
     def __init__(self):
         super().__init__()
-        self.setWordWrap(True)
+        self.setObjectName("banner")
         self.setMinimumHeight(54)
-        self.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(10, 8, 10, 8)
+        row.setSpacing(10)
+        self.rudder = QSvgWidget(str(ASSETS / "rudder-icon.svg"))
+        self.rudder.setFixedSize(30, 30)
+        self.rudder.setToolTip("Rudder can't be reached")
+        row.addWidget(self.rudder)
+        self.text = QLabel()
+        self.text.setWordWrap(True)
+        self.text.setStyleSheet("border: 0; background: transparent; font-weight: 700; letter-spacing: 1px;")
+        row.addWidget(self.text, 1)
 
     def show_status(self, s):
         if not s["rudder"]:
-            text, bg, fg = "RUDDER ISN'T RUNNING · start Rudder's bridge (bridge/bridge.py) and Firefox with Rudder", \
-                "qlineargradient(x1:0,y1:0,x2:0.02,y2:0.02,spread:repeat,stop:0 #f2ede1,stop:0.7 #f2ede1,stop:0.71 #d9d2c1,stop:1 #d9d2c1)", INK
+            text, bg = "RUDDER ISN'T RUNNING · start Rudder's bridge (bridge/bridge.py) and Firefox with Rudder",                 "qlineargradient(x1:0,y1:0,x2:0.02,y2:0.02,spread:repeat,stop:0 #f2ede1,stop:0.7 #f2ede1,stop:0.71 #d9d2c1,stop:1 #d9d2c1)"
         elif not s["firefox"]:
-            text, bg, fg = "FIREFOX ISN'T CONNECTED · open Firefox with Rudder", PAPER, INK
+            text, bg = "FIREFOX ISN'T CONNECTED · open Firefox with Rudder", PAPER
         elif s["steering"]:
-            text, bg, fg = "HULL IS STEERING RUDDER · your goal and internet culture map decide what YouTube shows", BLUE, INK
+            text, bg = "HULL IS STEERING RUDDER · your goal and internet culture map decide what YouTube shows", BLUE
         else:
-            text, bg, fg = "HULL IS WATCHING · Rudder filters on its own", PAPER, INK
+            text, bg = "HULL IS WATCHING · Rudder filters on its own", PAPER
         if s.get("warming"):
             text += " · loading Gemma…"
-        self.setText(text)
-        self.setStyleSheet(f"background: {bg}; color: {fg}; border: 2px solid {INK}; padding: 8px 10px; font-weight: 700; letter-spacing: 1px;")
+        self.rudder.setVisible(not (s["rudder"] and s["firefox"]))
+        self.text.setText(text)
+        self.setStyleSheet(f"QFrame#banner {{ background: {bg}; border: 2px solid {INK}; }}")
 
 
 class Numbers(QFrame):
