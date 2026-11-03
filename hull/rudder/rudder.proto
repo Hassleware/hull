@@ -77,7 +77,7 @@ message Video {
   string thumbnail_url = 10;
   string source = 11;  // where it came from: browse (home, channels), next (watch page), search, reel_watch_sequence (Shorts), player, page, tile
   bool short = 12;
-  map<string, string> fields = 13;  // added by earlier stages: thumbnail_text, dislike_chance, and your apps' fields
+  map<string, string> fields = 13;  // added by earlier stages: thumbnail_text, and your apps' fields
 }
 
 message Outcome {
@@ -124,9 +124,8 @@ message VideoEvents {
 
 message Stage {
   string id = 1;  // unique; defaults to the kind
-  string kind = 2;  // your-clicks, keywords, learned, thumbnail-text, app
+  string kind = 2;  // your-clicks, keywords, thumbnail-text, app
   // keywords, thumbnail-text: { "filters": [...] } (default: the popup's); thumbnail-text: { "min_letters": 4 }
-  // learned: { "can_show": true } lets it show videos like ones you liked (a show skips every stage after it)
   // app: { "name": "my-app", "when_missing": "hide" | "pass", "remember": false, ...anything your app reads from
   //        StageRequest.config }. Rudder keeps an app's answer for a video; with "remember": false it asks the app
   //        again each time YouTube sends the video (a new page, a refresh), for answers that change, like "seen before".
@@ -185,7 +184,7 @@ message Stats {
   map<string, int32> hidden_by_stage = 7;
   int32 likes = 4;
   int32 dislikes = 5;
-  bool learning = 6;  // the like/dislike model is trained
+  bool learning = 6;  // unused: Rudder no longer has a like/dislike model (apps learn from WatchFeedback)
 }
 
 message Hidden {
@@ -236,6 +235,9 @@ message Panel {
   string id = 1;
   string title = 2;
   repeated Block blocks = 3;
+  // your app's icon as SVG markup (up to 20 kB): while your panel is up, the popup shows it at the top, so people can
+  // see your app is connected
+  string icon = 4;
 }
 
 message Block {

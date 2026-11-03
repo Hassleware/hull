@@ -10,7 +10,7 @@ from hull.config import load
 from hull.link import Hull
 from hull.rudder import rudder_pb2 as pb, rudder_pb2_grpc as rpc
 from hull.bloom import Bloom
-from hull.graph import PREFIX
+from hull.graph import PREFIX, Graph
 from hull.stages.internet_culture import InternetCulture
 from hull.stages.repeats import Repeats
 from hull.stages.rules import Rules
@@ -307,6 +307,7 @@ class TestHullWithRudder(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((s["videos"], s["thumbnails"], s["hid_by_stage"], s["shown"], s["rated"]), (3, 1, {"rules": 1}, 1, 1))
             self.assertEqual(s["recent"], [("GTA 6 trailer", "rules", "GTA")])
             self.assertEqual(fake.panels[-1].title, "Hull")
+            self.assertIn("<svg", fake.panels[-1].icon)  # Rudder's popup shows it while Hull is connected
 
             task.cancel()  # like Ctrl-C: Hull takes its stage and panel back out
             with self.assertRaises(asyncio.CancelledError):
@@ -454,6 +455,31 @@ class TestIngest(unittest.TestCase):
             n = c.ollama.calls
             self.assertIsNone(c.seen(Video("a", title="GTA 6 trailer")))  # already on the map
             self.assertEqual(c.ollama.calls, n)
+            store.db.close()
+
+
+class TestTaste(unittest.TestCase):
+    def test_learns_from_likes_and_dislikes(self):
+        from hull.stages.taste import Taste
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(tmp)
+            t = Taste({"near": 0.6, "topic_dislikes": 2}, store)
+            t.ollama = FakeOllama()
+            self.assertEqual(t.decide([Video("x", title="GTA 6 gameplay")])[0].decision, "pass")  # nothing disliked yet
+            store.rated(Video("d1", title="GTA 6 trailer reaction", channel="Hype"), False)
+            store.rated(Video("l1", title="Sourdough bread at home", channel="Baker"), True)
+            rs = t.decide([Video("x", title="GTA 6 trailer breakdown", channel="Hype"), Video("y", title="Sourdough bread for beginners", channel="Baker"),
+                           Video("d1", title="GTA 6 trailer reaction", channel="Hype")])
+            self.assertEqual([r.decision for r in rs], ["hide", "pass", "pass"])  # rated ones are Rudder's
+            self.assertIn("which you disliked", rs[0].why)
+            # a topic disliked twice and never liked hides wherever it turns up
+            g = Graph(store, FakeOllama(), merge=0.99)
+            g.vecs = g.vecs[:, :64]
+            for vid, topics in {"d1": ["true crime", "news"], "d2": ["true crime"], "z": ["true crime", "podcasts"]}.items():
+                g.attest(vid, topics)
+            store.rated(Video("d2", title="Another case", channel="Crime"), False)
+            r = t.decide([Video("z", title="Totally new words here", channel="Pod")])[0]
+            self.assertEqual(r.why, "you've disliked 2 videos about true crime")
             store.db.close()
 
 

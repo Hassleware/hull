@@ -81,6 +81,7 @@ Everything is in `hull.toml`. Each `[[stage]]` becomes one stage in Rudder's pip
 |---|---|
 | `repeats` | Hides any video Rudder has put on screen before: by its id (a Bloom filter), or as a copy of a shown one (same title or thumbnail, found by LSH) |
 | `rules` | Your own regular expressions over the title, channel, description and thumbnail text. The first rule that matches decides |
+| `taste` | Learns from your likes and dislikes in Rudder: hides new videos really alike to ones you disliked (embeddinggemma, closer to a dislike than to any like) and topics you've disliked twice and never liked |
 | `internet-culture` | Has Gemma tag the video into your internet culture graph, then hides by `block` and `focus` |
 
 A learning harness, for example:
@@ -154,6 +155,7 @@ Everything is in `data/`:
   | `topics`, `video_topics` | The internet culture graph: topics with their embeddings, and which videos attest to which |
   | `judgements` | Gemma's answers to "is X part of Y?" |
   | `ratings` | Your likes and dislikes |
+  | `taste_vecs` | How embeddinggemma reads each rated or judged video, for the taste stage |
   | `captions`, `watched` | What was said in the videos you watched, line by line; when each was tagged again from it |
 
 - `shown.bloom`: the Bloom filter of shown ids.

@@ -12,6 +12,8 @@ Solution: Hull is the ship under the Rudder. It runs on your own computer, and n
 
 Then you tell Hull what you want, in your own words: "I'm learning Bayesian statistics. Nothing else." Gemma turns that into places on your map, and you can change them before you press Apply. Hull lets through the videos near those places and hides the rest, even the ones you never thought to block. And it shows you each video only once, copies uploaded under a new name included.
 
+Hull learns your taste too. Every 👍 and 👎 you give in Rudder goes to Hull, and it hides new videos that are really like the ones you disliked, and topics you keep disliking.
+
 Hull also listens. When you watch a video, Rudder quietly reads its English subtitles, without showing them unless you press CC. Gemma learns what the video really talks about, so your map is built from what you actually watch.
 
 <p align="center"><img src="docs/steering.png" alt="Hull is steering Rudder" width="366"> <img src="docs/not-steering.png" alt="Hull is watching while Rudder filters on its own" width="366"></p>

@@ -14,5 +14,6 @@ To add one: write it in this folder and add it to KINDS.
 from .internet_culture import InternetCulture
 from .repeats import Repeats
 from .rules import Rules
+from .taste import Taste
 
-KINDS = {"internet-culture": InternetCulture, "repeats": Repeats, "rules": Rules}
+KINDS = {"internet-culture": InternetCulture, "repeats": Repeats, "rules": Rules, "taste": Taste}

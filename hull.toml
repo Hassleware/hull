@@ -33,3 +33,9 @@ model = "gemma4:e4b"
 embed_model = "embeddinggemma"
 # block = ["grand theft auto"]        # hide videos near these topics in your internet culture graph (block_at = 0.85)
 # focus = ["bayesian statistics"]     # show only videos near these (focus_at = 0.75): a learning harness
+
+# Learns from your likes and dislikes in Rudder and hides new videos like the ones you disliked (after the internet
+# culture stage, which tags them first)
+[[stage]]
+id = "taste"
+kind = "taste"

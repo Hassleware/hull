@@ -311,14 +311,16 @@ class TestResults(_message.Message):
     def __init__(self, results: _Optional[_Iterable[_Union[TestResult, _Mapping]]] = ..., ms: _Optional[float] = ...) -> None: ...
 
 class Panel(_message.Message):
-    __slots__ = ("id", "title", "blocks")
+    __slots__ = ("id", "title", "blocks", "icon")
     ID_FIELD_NUMBER: _ClassVar[int]
     TITLE_FIELD_NUMBER: _ClassVar[int]
     BLOCKS_FIELD_NUMBER: _ClassVar[int]
+    ICON_FIELD_NUMBER: _ClassVar[int]
     id: str
     title: str
     blocks: _containers.RepeatedCompositeFieldContainer[Block]
-    def __init__(self, id: _Optional[str] = ..., title: _Optional[str] = ..., blocks: _Optional[_Iterable[_Union[Block, _Mapping]]] = ...) -> None: ...
+    icon: str
+    def __init__(self, id: _Optional[str] = ..., title: _Optional[str] = ..., blocks: _Optional[_Iterable[_Union[Block, _Mapping]]] = ..., icon: _Optional[str] = ...) -> None: ...
 
 class Block(_message.Message):
     __slots__ = ("text", "stats", "bars", "table", "button")

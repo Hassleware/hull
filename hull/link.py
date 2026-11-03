@@ -16,6 +16,7 @@ strict, until Hull runs again or `python -m hull leave`.
 The desktop app (hull/app.py) runs this on a thread of its own and calls the thread-safe methods at the bottom.
 """
 import asyncio, hashlib, json, logging, time
+from pathlib import Path
 
 import grpc
 from google.protobuf.json_format import MessageToDict
@@ -25,6 +26,7 @@ from hull.stages import KINDS
 from hull.video import Result, Video
 
 APP = "hull"  # the name Hull says hello with; Rudder's app stages point at it
+ICON = (Path(__file__).parent / "assets" / "hull-icon.svg").read_text("utf-8")  # shown in Rudder's popup while Hull is connected
 DECISION = {"pass": pb.PASS, "hide": pb.HIDE, "show": pb.SHOW}
 log = logging.getLogger("hull")
 
@@ -241,7 +243,7 @@ class Hull:
         texts = [g["text"] for g in self.goals if g.get("text")]
         head = ("Hull is steering Rudder" if self.steering else "Hull is watching: Rudder filters on its own") + \
                (f". Goals: {'; '.join(texts)}" if texts and self.steering else "")
-        return pb.Panel(id=APP, title="Hull", blocks=[
+        return pb.Panel(id=APP, title="Hull", icon=ICON, blocks=[
             pb.Block(text=head),
             pb.Block(stats=pb.StatGrid(stats=[
                 pb.Stat(label="recorded", value=str(s["videos"])),
