@@ -10,7 +10,7 @@ Solution: Hull is the ship under the Rudder. It runs on your own computer, and n
 
 <p align="center"><img src="docs/goal.png" alt="Your goals in plain words, turned into topics by Gemma" width="366"></p>
 
-Then you tell Hull what you want, in your own words: "I'm learning Bayesian statistics. Nothing else." Gemma goes through every topic on your map and sorts it: for your goal, against it, or neither. You can change any of them before you press Apply. Hull lets through the videos near what's for, and hides what's against, even the ones you never thought to block. You can keep as many goals as you like at once. And it shows you each video only once, copies uploaded under a new name included.
+Then you tell Hull what you want, in your own words: "I'm learning Bayesian statistics. Nothing else." Gemma goes through the topics on your map near your goal and sorts them: for your goal, against it, or neither. Then you see your goal on your map: blue is what you'll get, red is what you won't. Click any topic to change it before you press Apply. Hull lets through the videos near what's for, and hides what's against, even the ones you never thought to block. You can keep as many goals as you like at once. And it shows you each video only once, copies uploaded under a new name included.
 
 Hull learns your taste too. Every 👍 and 👎 you give in Rudder goes to Hull, and it hides new videos that are really like the ones you disliked, and topics you keep disliking.
 
@@ -29,12 +29,10 @@ Happy Sailing.
 **Start it:**
 1. Install [Ollama](https://ollama.com), then `ollama pull gemma4:e4b` and `ollama pull embeddinggemma`.
 2. Get **Hull.exe** and **rudder-1.1.0.xpi** from [the latest release](https://github.com/Hassleware/hull/releases/latest). Open the `.xpi` in Firefox to add Rudder.
-3. Run Hull.exe. It starts Ollama and Rudder's bridge itself if they aren't running, and keeps its settings (`hull.toml`) and your data next to itself. When Gemma drafts a goal, you see it on your map: blue is what you'll get, red is what you won't. Click a topic to change it.
-
-Switch on *Start with Windows* and it opens in the tray every time you log in.
-
-**Remove it:** right-click Hull in the tray and pick *Uninstall Hull…*. Hull leaves Rudder (YouTube filters as before), leaves Windows startup and deletes itself. Tick the box to delete your map and data too. Ollama stays.
+3. Run Hull.exe. It starts Ollama and Rudder's bridge itself if they aren't running, and keeps its settings (`hull.toml`) and your data next to itself. Switch on *Start with Windows* and it opens in the tray every time you log in.
 
    Or, with Python 3.11 or newer: in this folder, run `pip install -e .`, then `python -m hull`.
+
+**Remove it:** right-click Hull in the tray and pick *Uninstall Hull…*. Hull leaves Rudder (YouTube filters as before), leaves Windows startup and deletes itself. Tick the box to delete your map and data too. Ollama stays.
 
 How it all works: [docs/how-it-works.md](docs/how-it-works.md).
