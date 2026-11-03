@@ -29,7 +29,9 @@ Happy Sailing.
 **Start it:**
 1. Install [Ollama](https://ollama.com), then `ollama pull gemma4:e4b` and `ollama pull embeddinggemma`.
 2. Get **Hull.exe** and **rudder-1.1.0.xpi** from [the latest release](https://github.com/Hassleware/hull/releases/latest). Open the `.xpi` in Firefox to add Rudder.
-3. Run Hull.exe. It starts Ollama and Rudder's bridge itself if they aren't running, and keeps its settings (`hull.toml`) and your data next to itself. Switch on *Start with Windows* and it opens in the tray every time you log in.
+3. Run Hull.exe. It starts Ollama and Rudder's bridge itself if they aren't running, and keeps its settings (`hull.toml`) and your data next to itself. When Gemma drafts a goal, you see it on your map: blue is what you'll get, red is what you won't. Click a topic to change it.
+
+Switch on *Start with Windows* and it opens in the tray every time you log in.
 
 **Remove it:** right-click Hull in the tray and pick *Uninstall Hull…*. Hull leaves Rudder (YouTube filters as before), leaves Windows startup and deletes itself. Tick the box to delete your map and data too. Ollama stays.
 

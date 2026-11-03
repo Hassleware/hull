@@ -238,6 +238,7 @@ class GoalWindow(QDialog):
             self.map.picked.connect(self.cycle)
             v.addWidget(self.map, 1)
             self.summary = label("", "lbl")
+            self.summary.setWordWrap(True)  # long: it wraps, so the window keeps its width
             v.addWidget(self.summary)
             self.embedded.connect(self.recolour)
             self.recolour()
@@ -295,9 +296,10 @@ class GoalWindow(QDialog):
             self.summary.setText("WORKING OUT WHAT THIS GOAL DOES…")
             return
         focused = bool(self.preview.focus)
-        shown = sum(m == "focus" for m in marks.values())
-        hidden = sum(m == "block" or (focused and m is None) for m in marks.values())
-        self.summary.setText(f"AS THIS GOAL SEES YOUR MAP: {shown} TOPICS SHOWN (BLUE), {hidden} HIDDEN (RED) OF {len(g.names)}"
+        shown = sum(marks.get(n) == "focus" for n in g.names)
+        hidden = sum(marks.get(n) == "block" or (focused and marks.get(n) is None) for n in g.names)
+        asks = sum(marks.get(n) == "ask" for n in g.names)
+        self.summary.setText(f"AS THIS GOAL SEES YOUR MAP: {shown} TOPICS SHOWN (BLUE), {hidden} HIDDEN (RED), {asks} FOR GEMMA TO DECIDE, OF {len(g.names)}"
                              f"{' · EVERYTHING AWAY FROM BLUE IS HIDDEN' if focused else ''}. CLICK A TOPIC: FOR → AGAINST → NEITHER.")
 
     def cycle(self, name, members):
