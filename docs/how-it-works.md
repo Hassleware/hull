@@ -48,6 +48,10 @@ Hull brings up what it needs:
 
 From nothing to steering takes about 20 seconds, most of it loading Gemma.
 
+## Uninstalling
+
+*Uninstall Hull…* in the tray menu (or `Hull.exe uninstall [--delete-data]`): Hull takes its stages out of Rudder, takes itself out of Windows startup, closes, and Hull.exe deletes itself a few seconds later. With *delete data*, `hull.db`, thumbnails, the log, settings and `hull.toml` go too. Ollama and its models stay.
+
 ## The app
 
 - **The banner** says what Hull is doing, first thing:

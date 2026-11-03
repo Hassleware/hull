@@ -16,6 +16,7 @@ Read `README.md` (what Hull is) and `docs/how-it-works.md` (how) first.
 | `hull/mapview.py` | The internet culture map: force layout over the graph, pins coloured by the goal, growth slider data |
 | `hull/autostart.py` | Start with Windows: Hull in the user's startup list (HKCU Run), opened with `--tray` |
 | `hull/rudder/bridge.py` | Rudder's bridge, copied by `scripts/sync_proto.py` (don't edit): Hull runs it when no bridge is running |
+| `hull/uninstall.py` | Uninstall: out of Windows startup, data deleted if asked, Hull.exe deletes itself |
 | `hull/settings.py` | `data/settings.json`: steering on/off and the goal |
 | `hull/assets/` | The wordmark and icons, as SVG; the tray shows `hull-icon.svg` while steering, `hull-icon-off.svg` otherwise |
 | `hull/link.py` | The link to Rudder: warms models, joins and leaves the pipeline (`remember: false`), serves stage requests, records videos (WatchVideos), what's shown (WatchShown) and what's said in watched videos (WatchCaptions), draws the popup panel, reconnects; thread-safe `set_steering`, `set_filtering`, `set_goal` for the app |

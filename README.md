@@ -31,6 +31,8 @@ Happy Sailing.
 2. Get **Hull.exe** and **rudder-1.1.0.xpi** from [the latest release](https://github.com/Hassleware/hull/releases/latest). Open the `.xpi` in Firefox to add Rudder.
 3. Run Hull.exe. It starts Ollama and Rudder's bridge itself if they aren't running, and keeps its settings (`hull.toml`) and your data next to itself. Switch on *Start with Windows* and it opens in the tray every time you log in.
 
+**Remove it:** right-click Hull in the tray and pick *Uninstall Hull…*. Hull leaves Rudder (YouTube filters as before), leaves Windows startup and deletes itself. Tick the box to delete your map and data too. Ollama stays.
+
    Or, with Python 3.11 or newer: in this folder, run `pip install -e .`, then `python -m hull`.
 
 How it all works: [docs/how-it-works.md](docs/how-it-works.md).

@@ -590,6 +590,10 @@ class TestStartup(unittest.TestCase):
         finally:
             autostart.set_on = real
 
+    def test_the_app_loads(self):
+        import hull.app  # the window's code: a typo there breaks Hull.exe, and no other test loads it
+        self.assertTrue(hull.app.run)
+
     def test_start_with_windows_command(self):
         from hull import autostart
         self.assertIn("-m hull --tray --config", autostart.command("hull.toml"))

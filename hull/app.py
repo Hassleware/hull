@@ -607,13 +607,9 @@ class Window(QMainWindow):
         frozen = getattr(sys, "frozen", False)
         box = QMessageBox(self)
         box.setWindowTitle("Uninstall Hull")
-        box.setText("Uninstall Hull?
-
-Hull takes its stages out of Rudder (YouTube filters as before), leaves Windows startup "
+        box.setText("Uninstall Hull?\n\nHull takes its stages out of Rudder (YouTube filters as before), leaves Windows startup "
                     "and closes." + (" Hull.exe then deletes itself." if frozen else " To remove the program too, run: pip uninstall hull") +
-                    "
-
-Ollama and its models stay.")
+                    "\n\nOllama and its models stay.")
         wipe = QCheckBox("Also delete my internet culture map and data (hull.db, thumbnails, settings, goals)")
         box.setCheckBox(wipe)
         go = box.addButton("UNINSTALL", QMessageBox.ButtonRole.DestructiveRole)
