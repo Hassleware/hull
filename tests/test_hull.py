@@ -361,6 +361,19 @@ class TestHullWithRudder(unittest.IsolatedAsyncioTestCase):
             store.db.close()
         await server.stop(None)
 
+    async def test_news_reaches_stages_and_a_failing_one_doesnt_stop_hull(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(tmp)
+            hull = Hull({"rudder": {"address": ""}, "pipeline": {"after": "your-clicks", "when_missing": "hide"},
+                         "stage": [{"id": "repeats", "kind": "repeats", "config": {}}]}, store)
+            got = []
+            hull.stages["broken"] = type("B", (), {"seen": lambda self, v: 1 / 0})()
+            hull.stages["ok"] = type("O", (), {"seen": lambda self, v: got.append(v.id)})()
+            with self.assertLogs("hull", "ERROR"):
+                await hull.tell("seen", Video("a", title="x"))  # repeats has no seen hook; broken raises; ok still hears
+            self.assertEqual(got, ["a"])
+            store.db.close()
+
     async def test_a_failing_stage_hides(self):
         class Broken:
             def decide(self, videos):

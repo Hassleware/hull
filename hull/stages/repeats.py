@@ -29,11 +29,11 @@ class Repeats:
         store.db.execute("create table if not exists shown_prints (video_id text primary key, title text, dhash text)")
         path = store.folder / "shown.bloom"
         fresh = not path.exists()
-        self.seen = Bloom(path, config.get("capacity", 1_000_000))
+        self.shown_ids = Bloom(path, config.get("capacity", 1_000_000))
         if fresh:  # start from what the store already knows
             for (i,) in store.db.execute("select distinct video_id from shown"):
-                self.seen.add(i)
-            self.seen.save()
+                self.shown_ids.add(i)
+            self.shown_ids.save()
         self.copies = NearDuplicates(config.get("title_jaccard", 0.8), config.get("thumb_bits", 12))
         for i, title, h in store.db.execute("select video_id, title, dhash from shown_prints"):
             self.copies.add(i, title, int(h, 16) if h else None)
@@ -42,7 +42,7 @@ class Repeats:
     def decide(self, videos):
         out = []
         for v in videos:
-            if v.id in self.seen:
+            if v.id in self.shown_ids:
                 out.append(Result("hide", "shown before"))
                 continue
             h = thumb_hash(v)
@@ -58,13 +58,13 @@ class Repeats:
         rows = []
         with self.lock:
             for i in ids:
-                if i in self.seen:
+                if i in self.shown_ids:
                     continue
-                self.seen.add(i)
+                self.shown_ids.add(i)
                 title, h = self.waiting.pop(i, None) or (self.title_of(i), None)
                 self.copies.add(i, title, h)
                 rows.append((i, title, f"{h:064x}" if h is not None else None))
-            self.seen.save()
+            self.shown_ids.save()
         self.store.db.executemany("insert or ignore into shown_prints values (?,?,?)", rows)
         self.store.db.commit()
 

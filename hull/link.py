@@ -202,9 +202,7 @@ class Hull:
         async for e in rudder.WatchVideos(pb.Empty()):
             v = Video.from_pb(e.video)
             self.store.record(v, e.outcome.hidden, e.outcome.decided_by, e.outcome.why)
-            for st in self.stages.values():
-                if hasattr(st, "seen"):
-                    await asyncio.to_thread(st.seen, v)
+            await self.tell("seen", v)
 
     async def watch_feedback(self, rudder):
         """your likes and dislikes: recorded, and passed to stages (the internet culture stage tags the video, watched
@@ -212,25 +210,30 @@ class Hull:
         async for f in rudder.WatchFeedback(pb.Empty()):
             v = Video.from_pb(f.video)
             self.store.rated(v, f.like)
-            for st in self.stages.values():
-                if hasattr(st, "seen"):
-                    await asyncio.to_thread(st.seen, v)
+            await self.tell("seen", v)
+
+    async def tell(self, hook, *args):
+        """pass news to every stage that wants it (a method named hook), in a worker thread; a stage that fails is
+        logged, and Hull carries on"""
+        for sid, st in self.stages.items():
+            fn = getattr(st, hook, None)
+            if callable(fn):
+                try:
+                    await asyncio.to_thread(fn, *args)
+                except Exception:
+                    log.exception("stage %s failed on %s", sid, hook)
 
     async def watch_shown(self, rudder):
         async for e in rudder.WatchShown(pb.Empty()):
             ids = list(e.ids)
             self.store.shown(ids, e.at_ms)
-            for st in self.stages.values():
-                if hasattr(st, "shown"):
-                    await asyncio.to_thread(st.shown, ids)
+            await self.tell("shown", ids)
 
     async def watch_captions(self, rudder):
         """what's said in the videos you watch, as you watch: kept, and passed to stages (the internet culture stage re-tags)"""
         async for c in rudder.WatchCaptions(pb.Empty()):
             self.store.captions([c])
-            for st in self.stages.values():
-                if hasattr(st, "heard"):
-                    await asyncio.to_thread(st.heard, c.video_id, c.text)
+            await self.tell("heard", c.video_id, c.text)
 
     async def panel(self, rudder):
         """Hull's panel in Rudder's popup, redrawn every 5 s"""
