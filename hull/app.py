@@ -3,7 +3,7 @@ your internet culture map. Hull itself (hull/link.py) runs on a thread of its ow
 Closing the window keeps Hull going in the system tray; Quit there takes Hull's stages out of Rudder and stops.
 
 Styled like Rudder's popup: paper, ink, square 2px borders, monospace, uppercase headings, Rudder blue."""
-import asyncio, bisect, html, logging, sys, threading, time
+import asyncio, bisect, copy, html, logging, sys, threading, time
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
@@ -176,9 +176,9 @@ class Numbers(QFrame):
 
 class Chips(QWidget):
     """a list of topics as chips, each with ×, and a box to add one"""
-    def __init__(self, title):
+    def __init__(self, title, changed=None):
         super().__init__()
-        self.items = []
+        self.items, self.changed = [], changed
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(4)
@@ -199,18 +199,23 @@ class Chips(QWidget):
         if t and t not in self.items:
             self.set(self.items + [t])
 
-    def set(self, items):
+    def set(self, items, quiet=False):
         self.items = list(items)
+        if self.changed and not quiet:
+            self.changed()
         self.flow.setText(" ".join(f'<span style="border:2px solid {INK}">&nbsp;{html.escape(t)} <a href="{html.escape(t)}" style="color:{INK};text-decoration:none"><b>×</b></a>&nbsp;</span>'
                                    for t in self.items) or "—")
 
 
 class GoalWindow(QDialog):
-    """one goal's topics, to check and edit: what it's for (show only what's near) and against (never show what's near)"""
-    def __init__(self, parent, goal, note=""):
+    """one goal, shown as what it does: your map coloured as if only this goal were on (blue shown, red hidden). Click
+    a topic to change it: for, against, neither. The topic lists are there too, folded away"""
+    embedded = Signal()
+
+    def __init__(self, parent, goal, note="", stage=None, positions=None):
         super().__init__(parent)
         self.setWindowTitle("Hull · goal")
-        self.resize(560, 680)
+        self.resize(980, 780) if stage else self.resize(560, 680)
         v = QVBoxLayout(self)
         v.setContentsMargins(16, 16, 16, 16)
         v.setSpacing(8)
@@ -220,9 +225,23 @@ class GoalWindow(QDialog):
         v.addWidget(self.text)
         if note:
             v.addWidget(label(note, "lbl"))
-        self.focus, self.block = Chips("FOR · SHOW ONLY WHAT'S NEAR (empty: everything)"), Chips("AGAINST · NEVER SHOW WHAT'S NEAR")
-        self.focus.set(goal.get("focus", []))
-        self.block.set(goal.get("block", []))
+        self.focus = Chips("FOR · SHOW ONLY WHAT'S NEAR (empty: everything)", self.recolour)
+        self.block = Chips("AGAINST · NEVER SHOW WHAT'S NEAR", self.recolour)
+        self.focus.set(goal.get("focus", []), quiet=True)
+        self.block.set(goal.get("block", []), quiet=True)
+        self.preview = None
+        if stage and stage.graph.names:
+            # a copy of the stage holding only this goal: it shares the map and what's known, the real goals don't change
+            self.preview = copy.copy(stage)
+            self.map = InternetCultureMap()
+            self.map.positions = dict(positions or {})  # where your main map has each topic
+            self.map.picked.connect(self.cycle)
+            v.addWidget(self.map, 1)
+            self.summary = label("", "lbl")
+            v.addWidget(self.summary)
+            self.embedded.connect(self.recolour)
+            self.recolour()
+            threading.Thread(target=self.embed, daemon=True).start()
         topics = QWidget()
         t = QVBoxLayout(topics)
         t.setContentsMargins(0, 0, 8, 0)
@@ -241,7 +260,58 @@ class GoalWindow(QDialog):
         row.addWidget(ok)
         row.addWidget(cancel)
         row.addStretch(1)
+        if self.preview:  # the map says it; the lists are for looking closer
+            scroll.hide()
+            lists = QPushButton("SHOW TOPICS")
+            lists.clicked.connect(lambda: (scroll.setVisible(not scroll.isVisible()), self.map.setVisible(not scroll.isVisible()),
+                                           lists.setText("SHOW MAP" if scroll.isVisible() else "SHOW TOPICS")))
+            row.addWidget(lists)
         v.addLayout(row)
+
+    def embed(self):
+        """the goal's topics as vectors, for its colours: map topics already have theirs; others need embeddinggemma"""
+        g, p = self.preview.graph, self.preview
+        for t in self.focus.items + self.block.items:
+            if t in g.index:
+                p.anchor_vecs.setdefault(t, g.vecs[g.index[t]])
+        try:
+            p.anchors(self.focus.items + self.block.items)
+        except Exception as e:
+            log.warning("couldn't embed the goal's topics: %s", e)
+        self.embedded.emit()
+
+    def recolour(self):
+        if not self.preview:
+            return
+        self.preview.set_goal(self.focus.items, self.block.items)
+        g = self.preview.graph
+        for t in self.focus.items + self.block.items:  # a clicked map topic has its vector already
+            if t in g.index:
+                self.preview.anchor_vecs.setdefault(t, g.vecs[g.index[t]])
+        self.map.key = None
+        self.map.draw(self.preview)
+        marks = self.preview.marks(g.names)
+        if marks is None:
+            self.summary.setText("WORKING OUT WHAT THIS GOAL DOES…")
+            return
+        focused = bool(self.preview.focus)
+        shown = sum(m == "focus" for m in marks.values())
+        hidden = sum(m == "block" or (focused and m is None) for m in marks.values())
+        self.summary.setText(f"AS THIS GOAL SEES YOUR MAP: {shown} TOPICS SHOWN (BLUE), {hidden} HIDDEN (RED) OF {len(g.names)}"
+                             f"{' · EVERYTHING AWAY FROM BLUE IS HIDDEN' if focused else ''}. CLICK A TOPIC: FOR → AGAINST → NEITHER.")
+
+    def cycle(self, name, members):
+        """a click on a topic: for → against → neither → for"""
+        if not name:
+            return
+        if name in self.focus.items:
+            self.focus.set([t for t in self.focus.items if t != name], quiet=True)
+            self.block.set(self.block.items + [name], quiet=True)
+        elif name in self.block.items:
+            self.block.set([t for t in self.block.items if t != name], quiet=True)
+        else:
+            self.focus.set(self.focus.items + [name], quiet=True)
+        self.recolour()
 
     def goal(self):
         return {"text": self.text.toPlainText().strip(), "focus": self.focus.items, "block": self.block.items}
@@ -290,9 +360,10 @@ class Goals(QFrame):
     drafted = Signal(object)
     progressed = Signal(dict)
 
-    def __init__(self, hull, internet_culture, applied):
+    def __init__(self, hull, internet_culture, applied, positions=dict):
         super().__init__()
         self.hull, self.internet_culture, self.applied = hull, internet_culture, applied
+        self.positions = positions  # where the main map has each topic, for the goal window's map
         self.goals = list(hull.goals)
         self.setProperty("box", True)
         v = QVBoxLayout(self)
@@ -404,15 +475,14 @@ class Goals(QFrame):
             self.note.setText(f"COULDN'T REACH GEMMA: {goal}"[:80])
             return
         self.note.setText("")
-        w = GoalWindow(self, goal, f"GEMMA SORTED THE {goal.get('sorted', 0)} OF {goal.get('map', 0)} MAP TOPICS NEAREST YOUR GOAL: "
-                                   f"{len(goal['focus'])} FOR, {len(goal['block'])} AGAINST. "
-                                   "WITH ANY 'FOR' TOPIC, ONLY WHAT'S NEAR THEM SHOWS.")
+        w = GoalWindow(self, goal, f"GEMMA SORTED THE {goal.get('sorted', 0)} OF {goal.get('map', 0)} MAP TOPICS NEAREST YOUR GOAL.",
+                       self.internet_culture, self.positions())
         if w.exec():
             self.text.clear()
             self.save(self.goals + [w.goal()])
 
     def edit(self, i):
-        w = GoalWindow(self, self.goals[i])
+        w = GoalWindow(self, self.goals[i], "", self.internet_culture, self.positions())
         if w.exec():
             self.save([w.goal() if k == i else g for k, g in enumerate(self.goals)])
 
@@ -549,7 +619,7 @@ class Window(QMainWindow):
         self.goals_box = None
         if self.internet_culture:
             side.addWidget(label("YOUR GOALS", "h2"))
-            self.goals_box = Goals(hull, self.internet_culture, self.goal_applied)
+            self.goals_box = Goals(hull, self.internet_culture, self.goal_applied, lambda: self.map.positions)
             side.addWidget(self.goals_box)
             self.goal_applied.connect(lambda: (setattr(self.map, "key", None), self.redraw()))
         self.side = side

@@ -594,6 +594,26 @@ class TestStartup(unittest.TestCase):
         import hull.app  # the window's code: a typo there breaks Hull.exe, and no other test loads it
         self.assertTrue(hull.app.run)
 
+    def test_goal_window_maps_the_goal_and_clicks_change_it(self):
+        import os
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PySide6.QtWidgets import QApplication
+        from hull.app import GoalWindow
+        qa = QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(tmp)
+            c = internet_culture(store, FakeOllama())
+            c.graph.attest("x", ["video games", "drama", "statistics"])
+            w = GoalWindow(None, {"text": "stats", "focus": ["statistics"], "block": ["drama"]}, "", c)
+            self.assertEqual((c.focus, c.block), ([], []))  # the real goals don't change
+            self.assertIn("SHOWN (BLUE)", w.summary.text())
+            w.cycle("statistics", [])  # for → against
+            self.assertEqual((w.goal()["focus"], w.goal()["block"]), ([], ["drama", "statistics"]))
+            w.cycle("video games", [])  # neither → for
+            self.assertEqual(w.goal()["focus"], ["video games"])
+            w.close()
+            store.db.close()
+
     def test_start_with_windows_command(self):
         from hull import autostart
         self.assertIn("-m hull --tray --config", autostart.command("hull.toml"))
