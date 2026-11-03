@@ -411,16 +411,17 @@ class Goals(QFrame):
             h.setContentsMargins(0, 0, 0, 0)
             h.setSpacing(4)
             what = label("", None)
-            what.setWordWrap(False)
-            name = QFontMetrics(what.font()).elidedText(g.get("text") or "(untitled)", Qt.TextElideMode.ElideRight, 150)
+            what.setWordWrap(True)  # the goal in your words, on as many lines as it takes (up to ~3; the rest on hover)
+            text = g.get("text") or "(untitled)"
+            name = text if len(text) <= 110 else text[:110].rsplit(" ", 1)[0] + "…"
             what.setText(f"<b>{html.escape(name)}</b><br><span style='font-size:10px'>{len(g.get('focus', []))} FOR · {len(g.get('block', []))} AGAINST</span>")
             what.setToolTip(g.get("text", ""))
             h.addWidget(what, 1)
             edit, drop = QPushButton("EDIT"), QPushButton("×")
             edit.clicked.connect(lambda _=False, i=i: self.edit(i))
             drop.clicked.connect(lambda _=False, i=i: self.save([x for k, x in enumerate(self.goals) if k != i]))
-            h.addWidget(edit)
-            h.addWidget(drop)
+            h.addWidget(edit, 0, Qt.AlignmentFlag.AlignTop)
+            h.addWidget(drop, 0, Qt.AlignmentFlag.AlignTop)
             self.rows.addWidget(line)
 
     def ask(self):
