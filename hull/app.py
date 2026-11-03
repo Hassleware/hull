@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QApplication, QDialog, QFrame, QGridLayout, QHBox
                                QPlainTextEdit, QPushButton, QScrollArea, QSlider, QSystemTrayIcon, QVBoxLayout, QWidget)
 
 from hull.link import Hull
-from hull.mapview import InternetCultureMap
+from hull.mapview import InternetCultureMap, theme_share
 
 ASSETS = Path(__file__).parent / "assets"
 PAPER, INK, FAINT, BLUE, RED = "#f2ede1", "#111111", "#d9d2c1", "#5BB8F0", "#E5484D"
@@ -231,6 +231,44 @@ class GoalWindow(QDialog):
 
     def goal(self):
         return {"text": self.text.toPlainText().strip(), "focus": self.focus.items, "block": self.block.items}
+
+
+class Focus(QFrame):
+    """the panel a click on the map opens: telemetry for the theme (and the topic) under the pointer"""
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setObjectName("focus")
+        self.setFixedWidth(330)
+        self.setStyleSheet(f"QFrame#focus {{ background: {PAPER}; border: 2px solid {INK}; }}")
+        v = QVBoxLayout(self)
+        v.setContentsMargins(10, 8, 10, 10)
+        head = QHBoxLayout()
+        self.title = label("", "h2")
+        self.title.setStyleSheet("margin-top: 0; border: 0;")
+        head.addWidget(self.title, 1)
+        close = QPushButton("×")
+        close.setFixedSize(24, 24)
+        close.setStyleSheet("padding: 0;")
+        close.clicked.connect(self.hide)
+        head.addWidget(close)
+        v.addLayout(head)
+        self.body = QLabel()
+        self.body.setStyleSheet("border: 0;")
+        self.body.setFixedWidth(306)  # known width, so its wrapped height is measured right
+        self.body.setWordWrap(True)
+        self.body.setTextFormat(Qt.TextFormat.RichText)
+        v.addWidget(self.body)
+        self.hide()
+
+    def show_text(self, title, body):
+        self.title.setText(title)
+        self.body.setText(body)
+        self.body.setFixedHeight(self.body.heightForWidth(306))
+        self.adjustSize()
+        p = self.parentWidget()
+        self.move(p.width() - self.width() - 10, 10)
+        self.show()
+        self.raise_()
 
 
 class Goals(QFrame):
@@ -464,6 +502,8 @@ class Window(QMainWindow):
         main.addLayout(head)
         self.map = InternetCultureMap()
         self.map.picked.connect(self.pick)
+        self.focus = Focus(self.map)
+        self.map.overlay = self.focus
         main.addWidget(self.map, 1)
         when = QHBoxLayout()
         when.addWidget(label("GROWTH", "lbl"))
@@ -533,11 +573,59 @@ class Window(QMainWindow):
         self.map.at = self.since()
         self.map.draw(self.internet_culture)
 
-    def pick(self, name):
-        """a clicked topic: marked on the map (hovering any topic shows its name and how often you've seen it)"""
-        self.map.selected = None if self.map.selected == name else name
+    def pick(self, name, members):
+        """a click on the map: the theme's telemetry in the focus panel; empty paper closes it"""
+        self.map.selected = name or None
         self.map.key = None
         self.redraw()
+        if not members:
+            self.focus.hide()
+            return
+        db, e, c = self.hull.store.db, html.escape, self.internet_culture
+        marks = c.marks(members)
+        guess = marks is None  # Gemma's not ready: go by the goals' own topics only
+        if guess:
+            marks = {n: "block" if n in c.block else "focus" if n in c.focus else None for n in members}
+        q = ",".join("?" * len(members))
+        counts = dict(db.execute(f"select t.name, count(*) from video_topics vt join topics t on t.id = vt.topic_id where t.name in ({q}) group by t.name", members))
+        top = sorted(members, key=lambda n: -counts.get(n, 0))
+        theme = f"select vt.video_id from video_topics vt join topics t on t.id = vt.topic_id where t.name in ({q})"
+        one = lambda sql: db.execute(sql.format(theme=theme), members).fetchone()[0]
+        videos = one("select count(distinct video_id) from ({theme})")
+        shown = one("select count(distinct video_id) from shown where video_id in ({theme})")
+        hidden = one("select count(distinct video_id) from outcomes where hidden = 1 and video_id in ({theme})")
+        watched = one("select count(distinct video_id) from captions where video_id in ({theme})")
+        liked = one("select count(distinct video_id) from ratings where liked = 1 and video_id in ({theme})")
+        disliked = one("select count(distinct video_id) from ratings where liked = 0 and video_id in ({theme})")
+        focused = bool(c.focus)
+        go, stop = theme_share([marks.get(n) for n in members], focused)
+        rest = max(0.0, 1 - go - stop)
+        likely = ("<b style='color:#2a7fb8'>SHOWN</b>" if go > stop else f"<b style='color:{RED}'>HIDDEN</b>") if max(go, stop) >= 0.5 \
+            else "<b>DECIDED BY ITS OWN TOPICS</b>"
+        bar = (f"<table width='100%' cellspacing='0' cellpadding='0' style='border:2px solid {INK}'><tr>"
+               + "".join(f"<td width='{max(1, round(100 * w))}%' style='background:{col}'>&nbsp;</td>" for w, col in ((go, BLUE), (rest, FAINT), (stop, RED)) if w > 0)
+               + "</tr></table>")
+        body = (f"{len(members)} topics · {videos} videos<br>{bar}"
+                f"<span style='font-size:10px'>{go:.0%} SHOWN · {rest:.0%} UNTOUCHED · {stop:.0%} HIDDEN</span><br>"
+                f"A new video here will most likely be {likely}.<br>"
+                + ("<span style='font-size:10px'>GEMMA ISN'T RUNNING: BY YOUR GOALS' OWN TOPICS ONLY</span><br>" if guess else ""))
+        if name:
+            side = {"focus": f"<span style='background:{BLUE}'>&nbsp;SHOWN&nbsp;</span>", "block": f"<span style='background:{RED}'>&nbsp;HIDDEN&nbsp;</span>",
+                    "ask": "GEMMA HASN'T DECIDED"}.get(marks.get(name), "HIDDEN (outside your focus)" if focused else "UNTOUCHED")
+            said = [f"{'for' if name in g.get('focus', []) else 'against'}: {e(g.get('text') or 'untitled')}" for g in self.hull.goals
+                    if name in g.get("focus", []) + g.get("block", [])]
+            body += (f"<br><b>{e(name)}</b> · {counts.get(name, 0)} videos · {side}"
+                     + (f"<br><span style='font-size:10px'>{'<br>'.join(said)}</span>" if said else "") + "<br>")
+        body += (f"<br><b>SEEN</b> {videos} &nbsp; <b>SHOWN</b> {shown} &nbsp; <b>HIDDEN</b> {hidden}<br>"
+                 f"<b>WATCHED</b> {watched} &nbsp; <b>▲</b> {liked} &nbsp; <b>▼</b> {disliked}<br>"
+                 "<br><b>MOST SEEN</b><br>" + " · ".join(f"{e(n)} {counts.get(n, 0)}" for n in top[:6]))
+        recent = db.execute(f"""select v.title, exists(select 1 from shown s where s.video_id = v.id),
+                                       (select o.hidden from outcomes o where o.video_id = v.id order by o.at desc limit 1)
+                                from videos v where v.id in ({theme}) and trim(v.title) != '' order by v.first_recorded desc limit 5""", members).fetchall()
+        if recent:
+            body += "<br><br><b>LATEST</b><br>" + "<br>".join(f"{'▣' if s else ('▢' if h is None else '▨')} {e(t[:36])}" for t, s, h in recent) \
+                    + "<br><span style='font-size:10px'>▣ SHOWN · ▨ HIDDEN · ▢ NOT ON SCREEN</span>"
+        self.focus.show_text(f"{top[0].upper()} · {len(members)}", body)
 
     def edges(self, pos):
         """which window edges a point is on, for resizing"""

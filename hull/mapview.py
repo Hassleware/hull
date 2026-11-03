@@ -256,7 +256,7 @@ def cosmetic(color, width, alpha=255):
 
 
 class InternetCultureMap(QGraphicsView):
-    picked = Signal(str)  # a topic was clicked
+    picked = Signal(str, list)  # a click: the topic ("" for a theme's ground, or nothing), and its theme's topics
 
     def __init__(self):
         super().__init__()
@@ -339,6 +339,7 @@ class InternetCultureMap(QGraphicsView):
                 line.setToolTip(f"{top}: {round(shown * n)} of {n} topics shown, {round(hidden * n)} hidden.\n"
                                 f"A new video like these will most likely be {likely}.")
             scene.addItem(line)
+            line.theme = c
             blobs[c] = line
         self.field = dict(sides=sides, weights=np.array([math.sqrt(c / most) + 0.3 for c in counts]), box=box,
                           spread=GLOW * float(span_xy.max()), border=border, blobs=blobs, members=members, fill=fill, edge=edge)
@@ -527,6 +528,8 @@ class InternetCultureMap(QGraphicsView):
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
+        if getattr(self, "overlay", None):  # the focus panel stays in the top right corner
+            self.overlay.move(self.width() - self.overlay.width() - 10, 10)
         self.soon()
 
     def mousePressEvent(self, e):
@@ -537,10 +540,14 @@ class InternetCultureMap(QGraphicsView):
         super().mouseReleaseEvent(e)
         if (e.position() - getattr(self, "_down", e.position())).manhattanLength() < 5:  # a click, not a drag
             item = self.itemAt(e.position().toPoint())
-            while item is not None and not isinstance(item, Dot):
+            while item is not None and not isinstance(item, Dot) and not hasattr(item, "theme"):
                 item = item.parentItem()
-            if item is not None:
-                self.picked.emit(item.name)
+            p = self.parts
+            if item is None or not p:
+                self.picked.emit("", [])  # empty paper: close the panel
+                return
+            c = p["group"][p["names"].index(item.name)] if isinstance(item, Dot) else item.theme
+            self.picked.emit(item.name if isinstance(item, Dot) else "", [n for n, g in zip(p["names"], p["group"]) if g == c])
 
 
 class Dot(QGraphicsEllipseItem):

@@ -58,7 +58,8 @@ Hull checks every video Rudder filters (the home page, the sidebar beside a vide
   - Themes (communities found with Louvain: music, gaming, cooking…) carry one name while small on screen; hover a theme for how much of it is shown and hidden. Zoomed out, each theme shows one name, its most-seen topic and how many topics it holds, and the lines between two themes become one thick line. Zoom in and a theme opens: its topics' names and every line come back.
   - A name is drawn only where it has room: the most-seen go first, and a name that would touch another waits until you zoom in. Every dot is always drawn, and hovering one shows its name.
   - Blue is near your focus, red near what you block, and dashed where Gemma still decides.
-  - Wheel to zoom, drag to move, hover a pin for its name and how often you've seen it, click one to mark it.
+  - Wheel to zoom, drag anywhere to move, hover a pin for its name and how often you've seen it.
+  - Click a pin or a theme's ground for its focus panel: the theme's size, a bar of how much your goals show, leave alone and hide, what a new video there will most likely get, the clicked topic and which goals name it, the theme's numbers (seen, shown, hidden, watched, liked, disliked), its most-seen topics and latest videos. Click empty paper or × to close it.
   - The *growth* slider replays how the map grew: topics, lines and themes appear in place as they were first seen, light while you drag and in full detail once you stop.
 - **The tray.** Closing the window keeps Hull steering from the tray: a blue hull while it steers, grey when it doesn't. Quit there takes Hull's stages out of Rudder.
 - **In Rudder's popup.** Hull's panel shows whether it's steering, your goal, and its numbers. If Hull stops without cleaning up, Rudder's pipeline marks Hull's stages as "hull not running", striped while they hide what they'd check.
