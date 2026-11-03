@@ -1,5 +1,6 @@
 """Repeats: a video Rudder has put on screen once is never shown again, and neither is a copy of it (a re-upload
-under another id: the same title, or the same thumbnail).
+under another id: the same title, or the same thumbnail). Everywhere but searches and channel pages (Rudder's
+fields.page), where you went looking: there it's shown, and still counts as shown for everywhere else.
 
   - Shown ids live in a Bloom filter (data/shown.bloom), filled from Rudder's WatchShown.
   - Copies are found with locality-sensitive hashing (hull/lsh.py) over shown videos' titles and thumbnails, kept in
@@ -39,10 +40,13 @@ class Repeats:
             self.copies.add(i, title, int(h, 16) if h else None)
         self.waiting = {}  # id → (title, dHash) of videos decided but not yet shown
 
+    LOOKING = ("search", "channel")  # pages where repeats are fine
+
     def decide(self, videos):
         out = []
         for v in videos:
-            if v.id in self.shown_ids:
+            looking = v.fields.get("page") in self.LOOKING
+            if v.id in self.shown_ids and not looking:
                 out.append(Result("hide", "shown before"))
                 continue
             h = thumb_hash(v)
@@ -50,7 +54,7 @@ class Repeats:
                 self.waiting[v.id] = (v.title, h)
                 if len(self.waiting) > 20000:  # most decided videos are never shown: forget the oldest
                     self.waiting.pop(next(iter(self.waiting)))
-                m = self.copies.match(v.id, v.title, h)
+                m = None if looking else self.copies.match(v.id, v.title, h)
             out.append(Result("hide", m[1]) if m else Result())
         return out
 

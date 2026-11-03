@@ -652,6 +652,24 @@ class TestDraftHoldsUp(unittest.TestCase):
         self.assertEqual(o.json("m", "p", {}), {"topics": ["a"]})
 
 
+class TestRepeatsPages(unittest.TestCase):
+    def test_repeats_hidden_everywhere_but_searches_and_channel_pages(self):
+        from hull.stages.repeats import Repeats
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(tmp)
+            r = Repeats({}, store)
+            v = lambda page: Video("rp1", title="Weather: high and low pressure", fields={"page": page} if page else {})
+            self.assertEqual(r.decide([v("home")])[0].decision, "pass")
+            r.shown(["rp1"])
+            for page in ("home", "watch", "shorts", "other", None):
+                self.assertEqual(r.decide([v(page)])[0].decision, "hide", page)
+            for page in ("search", "channel"):
+                self.assertEqual(r.decide([v(page)])[0].decision, "pass", page)
+            copy = Video("rp2", title="Weather: high and low pressure", fields={"page": "search"})
+            self.assertEqual(r.decide([copy])[0].decision, "pass")  # a copy, on a search: fine too
+            store.db.close()
+
+
 class TestCaptions(unittest.TestCase):
     def test_a_watched_video_is_tagged_again_from_whats_said(self):
         with tempfile.TemporaryDirectory() as tmp:
