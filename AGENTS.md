@@ -12,7 +12,7 @@ Read `README.md` (what Hull is) and `docs/how-it-works.md` (how) first.
 | Path | What |
 |---|---|
 | `hull/__main__.py` | `python -m hull [app \| run \| stats \| leave] [--config hull.toml]` (default: app) |
-| `hull/app.py` | The desktop app (Qt, PySide6): banner, switches, goal box, topic details, tray. Rudder's popup styling |
+| `hull/app.py` | The desktop app (Qt, PySide6): banner, switches, goals (rows, and a window to edit one), tray; the sidebar never scrolls. Rudder's popup styling |
 | `hull/mapview.py` | The internet culture map: force layout over the graph, pins coloured by the goal, growth slider data |
 | `hull/settings.py` | `data/settings.json`: steering on/off and the goal |
 | `hull/assets/` | The wordmark and icons, as SVG; the tray shows `hull-icon.svg` while steering, `hull-icon-off.svg` otherwise |

@@ -8,7 +8,7 @@ Problem case: Rudder lets you choose what you don't want to see. But a list of w
 
 Solution: Hull is the ship under the Rudder. It runs on your own computer, and nothing leaves it. Gemma, a small AI model, reads every video Rudder sees, looks at its picture, and writes down what it is about. Hull puts every video on a map of everything you watch: your internet culture. Things that belong together sit together, so games end up near games and cooking near cooking. The map grows every day you use it.
 
-<p align="center"><img src="docs/goal.png" alt="Your goal in plain words, turned into topics by Gemma" width="366"></p>
+<p align="center"><img src="docs/goal.png" alt="Your goals in plain words, turned into topics by Gemma" width="366"></p>
 
 Then you tell Hull what you want, in your own words: "I'm learning Bayesian statistics. Nothing else." Gemma turns that into places on your map, and you can change them before you press Apply. Hull lets through the videos near those places and hides the rest, even the ones you never thought to block. And it shows you each video only once, copies uploaded under a new name included.
 

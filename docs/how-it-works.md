@@ -50,7 +50,7 @@ Hull checks every video Rudder filters (the home page, the sidebar beside a vide
   - *Rudder filtering* is Rudder's own on/off switch, the same as in Rudder's popup.
 
   Neither moves anything already on the YouTube page: the change applies to the videos not shown yet.
-- **Your goal.** Write what you want YouTube for. *Draft with Gemma* turns it into topics: *show only what's near* (focus) and *never show what's near* (block). Remove or add topics, then *Apply*. The goal is kept in `data/settings.json` and replaces the internet culture stage's `focus` and `block` from `hull.toml`.
+- **Your goals.** As many as you like, all at once, one row each with *Edit* and ×. Write what you want YouTube for and *Draft with Gemma*: a window opens with the goal's topics, *for* (show only what's near) and *against* (never show what's near), to remove or add before *Apply*. Goals add up; when two disagree about a topic, that's fine, and against wins for it. They're kept in `data/settings.json` and replace the internet culture stage's `focus` and `block` from `hull.toml`. The sidebar never scrolls: the title stays on top.
 - **Your internet culture map.**
   - Every topic is a pin, sized by how many videos you've seen on it, and topics that share videos are joined by lines.
   - Pins sit by meaning and by neighbours, so your internet culture forms clusters.
@@ -58,7 +58,7 @@ Hull checks every video Rudder filters (the home page, the sidebar beside a vide
   - Themes (communities found with Louvain: music, gaming, cooking…) carry one name while small on screen; hover a theme for how much of it is shown and hidden. Zoomed out, each theme shows one name, its most-seen topic and how many topics it holds, and the lines between two themes become one thick line. Zoom in and a theme opens: its topics' names and every line come back.
   - A name is drawn only where it has room: the most-seen go first, and a name that would touch another waits until you zoom in. Every dot is always drawn, and hovering one shows its name.
   - Blue is near your focus, red near what you block, and dashed where Gemma still decides.
-  - Wheel to zoom, drag to move, click a pin for its videos and neighbours.
+  - Wheel to zoom, drag to move, hover a pin for its name and how often you've seen it, click one to mark it.
   - The *growth* slider replays how the map grew: topics, lines and themes appear in place as they were first seen, light while you drag and in full detail once you stop.
 - **The tray.** Closing the window keeps Hull steering from the tray: a blue hull while it steers, grey when it doesn't. Quit there takes Hull's stages out of Rudder.
 - **In Rudder's popup.** Hull's panel shows whether it's steering, your goal, and its numbers. If Hull stops without cleaning up, Rudder's pipeline marks Hull's stages as "hull not running", striped while they hide what they'd check.
@@ -110,7 +110,7 @@ Hull's stages ask Rudder to ask again every time YouTube sends a video (`remembe
 
 It names 3 to 6 topics, from the subject up to the field. For example, "I spent 100 days in Los Santos" becomes *los santos → grand theft auto v → video games*. Every name is embedded with `embeddinggemma`, and names within 0.94 cosine of a known topic merge into it ("gta" is "grand theft auto"). A video is tagged once. A batch of 12 takes about 4 seconds, well inside Rudder's 25-second limit. Videos not tagged in time stay hidden and are asked about again the next time they come.
 
-**What you watch.** Rudder asks YouTube's player for English captions on every video you watch and streams each line to Hull as you reach it (`WatchCaptions`). Hull keeps them (table `captions`). Once about 600 characters have been said, Gemma tags the video again from its title and what's said in it, and those topics join your map. A watched video is mapped by its content, and the topic details mark it ▶. Captions stay hidden on the video unless you press CC or C.
+**What you watch.** Rudder asks YouTube's player for English captions on every video you watch and streams each line to Hull as you reach it (`WatchCaptions`). Hull keeps them (table `captions`). Once about 600 characters have been said, Gemma tags the video again from its title and what's said in it, and those topics join your map. A watched video is mapped by its content. Captions stay hidden on the video unless you press CC or C.
 
 **Block and focus: areas of your map.** A goal covers an area of your internet culture map:
 1. its topics, and near-synonyms of them (cosine ≥ `area_seed`, 0.85: "비디오 게임" for "video games");

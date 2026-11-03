@@ -348,10 +348,11 @@ class TestHullWithRudder(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(fake.enabled)
             hull.set_steering(True)
             await until(lambda: hull.status["steering"])
-            hull.set_goal({"text": "learn stats", "focus": ["statistics"], "block": []})
-            self.assertEqual(Settings(tmp).get("goal")["focus"], ["statistics"])
+            hull.set_goals([{"text": "learn stats", "focus": ["statistics"], "block": []},
+                            {"text": "no games", "focus": [], "block": ["video games", "statistics"]}])  # they disagree: allowed
+            self.assertEqual([g["text"] for g in Settings(tmp).get("goals")], ["learn stats", "no games"])
             Hull(cfg, store, Settings(tmp))  # a restart with a saved goal
-            await until(lambda: "Goal: learn stats" in fake.panels[-1].blocks[0].text)
+            await until(lambda: "Goals: learn stats; no games" in fake.panels[-1].blocks[0].text)
             self.assertTrue(any(s["steering"] is False for s in seen))  # the app heard about the switch
             task.cancel()
             with self.assertRaises(asyncio.CancelledError):
@@ -409,6 +410,20 @@ class TestSides(unittest.TestCase):
             self.assertEqual(c.side("video games"), "focus")  # the goal's own topics stay put, whatever's around them
             c.focus = []
             self.assertEqual(c.judge(["gta vi", "trailer", "video games"]).decision, "hide")  # only things to avoid: any hides
+            store.db.close()
+
+
+class TestManyGoals(unittest.TestCase):
+    def test_goals_add_up_and_against_wins_a_disagreement(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store, settings = Store(tmp), Settings(tmp)
+            settings.update(goal={"text": "old", "focus": ["cooking"], "block": []})  # one goal, as kept before
+            hull = Hull({"rudder": {"address": ""}, "pipeline": {"after": "your-clicks", "when_missing": "hide"},
+                         "stage": [{"id": "internet-culture", "kind": "internet-culture", "config": {}}]}, store, settings)
+            c = hull.stages["internet-culture"]
+            self.assertEqual((c.focus, [g["text"] for g in hull.goals]), (["cooking"], ["old"]))
+            hull.set_goals([{"text": "a", "focus": ["cooking", "music"], "block": []}, {"text": "b", "focus": [], "block": ["music"]}])
+            self.assertEqual((c.focus, c.block), (["cooking"], ["music"]))
             store.db.close()
 
 

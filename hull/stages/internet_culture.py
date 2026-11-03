@@ -238,7 +238,9 @@ class InternetCulture:
         return out
 
     def set_goal(self, focus, block):
-        self.focus, self.block = [t.lower() for t in focus], [t.lower() for t in block]
+        """the goals' topics together; one in both lists (goals that disagree) counts as against"""
+        self.block = list(dict.fromkeys(t.lower() for t in block))
+        self.focus = [t for t in dict.fromkeys(t.lower() for t in focus) if t not in self.block]
 
     def anchors(self, names):
         missing = [n for n in names if n not in self.anchor_vecs]

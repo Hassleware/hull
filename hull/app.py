@@ -7,9 +7,9 @@ import asyncio, bisect, html, logging, sys, threading, time
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QIcon
+from PySide6.QtGui import QAction, QFontMetrics, QIcon
 from PySide6.QtSvgWidgets import QSvgWidget
-from PySide6.QtWidgets import (QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu,
+from PySide6.QtWidgets import (QApplication, QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu,
                                QPlainTextEdit, QPushButton, QScrollArea, QSlider, QSystemTrayIcon, QVBoxLayout, QWidget)
 
 from hull.link import Hull
@@ -19,7 +19,7 @@ ASSETS = Path(__file__).parent / "assets"
 PAPER, INK, FAINT, BLUE, RED = "#f2ede1", "#111111", "#d9d2c1", "#5BB8F0", "#E5484D"
 STYLE = f"""
 * {{ font-family: "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace; font-size: 12px; color: {INK}; }}
-QMainWindow, QWidget#page, QScrollArea, QScrollArea > QWidget > QWidget {{ background: {PAPER}; }}
+QMainWindow, QDialog, QWidget#page, QScrollArea, QScrollArea > QWidget > QWidget {{ background: {PAPER}; }}
 QLabel {{ background: transparent; }}
 QLabel[role="h2"] {{ font-weight: 700; letter-spacing: 1px; margin-top: 10px; }}
 QLabel[role="lbl"] {{ font-size: 10px; letter-spacing: 1px; }}
@@ -191,53 +191,109 @@ class Chips(QWidget):
                                    for t in self.items) or "—")
 
 
-class GoalBox(QFrame):
-    """your goal in plain words → Gemma drafts focus and block topics → you edit them → Apply"""
+class GoalWindow(QDialog):
+    """one goal's topics, to check and edit: what it's for (show only what's near) and against (never show what's near)"""
+    def __init__(self, parent, goal, note=""):
+        super().__init__(parent)
+        self.setWindowTitle("Hull · goal")
+        self.resize(560, 680)
+        v = QVBoxLayout(self)
+        v.setContentsMargins(16, 16, 16, 16)
+        v.setSpacing(8)
+        v.addWidget(label("GOAL", "h2"))
+        self.text = QPlainTextEdit(goal.get("text", ""))
+        self.text.setFixedHeight(52)
+        v.addWidget(self.text)
+        if note:
+            v.addWidget(label(note, "lbl"))
+        self.focus, self.block = Chips("FOR · SHOW ONLY WHAT'S NEAR (empty: everything)"), Chips("AGAINST · NEVER SHOW WHAT'S NEAR")
+        self.focus.set(goal.get("focus", []))
+        self.block.set(goal.get("block", []))
+        topics = QWidget()
+        t = QVBoxLayout(topics)
+        t.setContentsMargins(0, 0, 8, 0)
+        t.addWidget(self.focus)
+        t.addWidget(self.block)
+        t.addStretch(1)
+        scroll = QScrollArea()  # a big draft is hundreds of topics: this window scrolls, the sidebar never does
+        scroll.setWidget(topics)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        v.addWidget(scroll, 1)
+        row = QHBoxLayout()
+        ok, cancel = QPushButton("APPLY"), QPushButton("CANCEL")
+        ok.clicked.connect(self.accept)
+        cancel.clicked.connect(self.reject)
+        row.addWidget(ok)
+        row.addWidget(cancel)
+        row.addStretch(1)
+        v.addLayout(row)
+
+    def goal(self):
+        return {"text": self.text.toPlainText().strip(), "focus": self.focus.items, "block": self.block.items}
+
+
+class Goals(QFrame):
+    """your goals, all at once: one row each (Edit, ×), and a box to draft a new one with Gemma"""
     drafted = Signal(object)
 
     def __init__(self, hull, internet_culture, applied):
         super().__init__()
         self.hull, self.internet_culture, self.applied = hull, internet_culture, applied
+        self.goals = list(hull.goals)
         self.setProperty("box", True)
         v = QVBoxLayout(self)
         v.setContentsMargins(8, 8, 8, 8)
         v.setSpacing(6)
+        self.rows = QVBoxLayout()
+        self.rows.setSpacing(4)
+        v.addLayout(self.rows)
         self.text = QPlainTextEdit()
-        self.text.setPlaceholderText("What do you want YouTube for?  e.g. I'm a student learning Bayesian statistics. Nothing else.")
-        self.text.setFixedHeight(58)
+        self.text.setPlaceholderText("A new goal: what do you want YouTube for?")
+        self.text.setFixedHeight(46)
         v.addWidget(self.text)
         row = QHBoxLayout()
         self.draft = QPushButton("DRAFT WITH GEMMA")
         self.draft.clicked.connect(self.ask)
         row.addWidget(self.draft)
-        v.addLayout(row)
-        self.note = label("", "lbl")
-        self.note.setWordWrap(True)
-        v.addWidget(self.note)
-        self.focus, self.block = Chips("SHOW ONLY WHAT'S NEAR (empty: everything)"), Chips("NEVER SHOW WHAT'S NEAR")
-        v.addWidget(self.focus)
-        v.addWidget(self.block)
-        row = QHBoxLayout()
-        self.apply = QPushButton("APPLY")
-        self.apply.clicked.connect(self.use)
-        clear = QPushButton("CLEAR GOAL")
-        clear.clicked.connect(lambda: (self.text.clear(), self.focus.set([]), self.block.set([]), self.use()))
-        row.addWidget(self.apply)
-        row.addWidget(clear)
         row.addStretch(1)
         v.addLayout(row)
+        self.note = label("", "lbl")
+        v.addWidget(self.note)
         self.drafted.connect(self.show_draft)
-        goal = (hull.settings.get("goal") if hull.settings else None) or {"text": "", "focus": internet_culture.focus, "block": internet_culture.block}
-        self.text.setPlainText(goal.get("text", ""))
-        self.focus.set(goal.get("focus", []))
-        self.block.set(goal.get("block", []))
+        self.show_rows()
+
+    def show_rows(self):
+        while self.rows.count():
+            w = self.rows.takeAt(0).widget()
+            if w:
+                w.deleteLater()
+        if not self.goals:
+            self.rows.addWidget(label("No goals: Gemma maps your internet culture, Rudder filters as it does.", "lbl"))
+        for i, g in enumerate(self.goals):
+            line = QFrame()
+            h = QHBoxLayout(line)
+            h.setContentsMargins(0, 0, 0, 0)
+            h.setSpacing(4)
+            what = label("", None)
+            what.setWordWrap(False)
+            name = QFontMetrics(what.font()).elidedText(g.get("text") or "(untitled)", Qt.TextElideMode.ElideRight, 150)
+            what.setText(f"<b>{html.escape(name)}</b><br><span style='font-size:10px'>{len(g.get('focus', []))} FOR · {len(g.get('block', []))} AGAINST</span>")
+            what.setToolTip(g.get("text", ""))
+            h.addWidget(what, 1)
+            edit, drop = QPushButton("EDIT"), QPushButton("×")
+            edit.clicked.connect(lambda _=False, i=i: self.edit(i))
+            drop.clicked.connect(lambda _=False, i=i: self.save([x for k, x in enumerate(self.goals) if k != i]))
+            h.addWidget(edit)
+            h.addWidget(drop)
+            self.rows.addWidget(line)
 
     def ask(self):
         text = self.text.toPlainText().strip()
         if not text:
             return
         self.draft.setEnabled(False)
-        self.note.setText("GEMMA IS THINKING…")
+        self.note.setText("GEMMA IS SORTING YOUR MAP (ABOUT A MINUTE)…")
 
         def work():
             try:
@@ -251,21 +307,29 @@ class GoalBox(QFrame):
         if isinstance(goal, Exception):
             self.note.setText(f"COULDN'T REACH GEMMA: {goal}"[:80])
             return
-        self.note.setText(f"GEMMA SORTED {goal.get('sorted', 0)} MAP TOPICS: {len(goal['focus'])} FOR, {len(goal['block'])} AGAINST. "
-                          "WITH ANY 'FOR' TOPIC ONLY THOSE SHOW. CHECK, THEN APPLY")
-        self.focus.set(goal["focus"])
-        self.block.set(goal["block"])
+        self.note.setText("")
+        w = GoalWindow(self, goal, f"GEMMA SORTED {goal.get('sorted', 0)} MAP TOPICS: {len(goal['focus'])} FOR, {len(goal['block'])} AGAINST. "
+                                   "WITH ANY 'FOR' TOPIC, ONLY WHAT'S NEAR THEM SHOWS.")
+        if w.exec():
+            self.text.clear()
+            self.save(self.goals + [w.goal()])
 
-    def use(self):
-        goal = {"text": self.text.toPlainText().strip(), "focus": self.focus.items, "block": self.block.items}
-        self.note.setText("APPLIED" if goal["focus"] or goal["block"] else "NO GOAL: GEMMA ONLY MAPS YOUR INTERNET CULTURE")
+    def edit(self, i):
+        w = GoalWindow(self, self.goals[i])
+        if w.exec():
+            self.save([w.goal() if k == i else g for k, g in enumerate(self.goals)])
+
+    def save(self, goals):
+        self.goals = goals
+        self.show_rows()
 
         def work():  # embedding the topics needs Ollama: off the window's thread
-            self.hull.set_goal(goal)
+            self.hull.set_goals(goals)
+            together = [t for g in goals for t in g.get("focus", []) + g.get("block", [])]
             try:
-                self.internet_culture.anchors(goal["focus"] + goal["block"])
+                self.internet_culture.anchors(list(dict.fromkeys(together)))
             except Exception as e:
-                log.warning("couldn't embed the goal's topics: %s", e)
+                log.warning("couldn't embed the goals' topics: %s", e)
             self.applied.emit()
         threading.Thread(target=work, daemon=True).start()
 
@@ -374,27 +438,16 @@ class Window(QMainWindow):
         side.addWidget(self.numbers)
         self.internet_culture = next((st for st in hull.stages.values() if hasattr(st, "graph")), None)
         if self.internet_culture:
-            side.addWidget(label("YOUR GOAL", "h2"))
-            side.addWidget(GoalBox(hull, self.internet_culture, self.goal_applied))
+            side.addWidget(label("YOUR GOALS", "h2"))
+            side.addWidget(Goals(hull, self.internet_culture, self.goal_applied))
             self.goal_applied.connect(lambda: (setattr(self.map, "key", None), self.redraw()))
-        side.addWidget(label("TOPIC", "h2"))
-        self.details = label("Click a topic on your internet culture map.")
-        self.details.setTextFormat(Qt.TextFormat.RichText)
-        self.details.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.details.setStyleSheet(f"border: 2px solid {INK}; padding: 8px;")
-        self.details.linkActivated.connect(self.pick)
-        side.addWidget(self.details)
         self.side = side
         side.addStretch(1)
-        holder = QWidget()
+        holder = QWidget()  # never scrolls: the title stays on top, and the window grows to fit what's below it
         holder.setObjectName("page")
         holder.setLayout(side)
-        scroll = QScrollArea()  # the side column scrolls on small screens
-        scroll.setWidget(holder)
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setFixedWidth(372)
-        self.columns.addWidget(scroll)
+        holder.setFixedWidth(360)
+        self.columns.addWidget(holder)
 
         main = QVBoxLayout()
         main.setSpacing(6)
@@ -481,28 +534,10 @@ class Window(QMainWindow):
         self.map.draw(self.internet_culture)
 
     def pick(self, name):
-        """a topic's details: how often, what the goal does with it, its neighbours, its videos"""
-        if not self.internet_culture or name not in self.internet_culture.graph.index:
-            return
-        self.map.selected = name
+        """a clicked topic: marked on the map (hovering any topic shows its name and how often you've seen it)"""
+        self.map.selected = None if self.map.selected == name else name
+        self.map.key = None
         self.redraw()
-        db, e = self.hull.store.db, html.escape
-        mark = (self.internet_culture.marks([name]) or {}).get(name)
-        why = next((w for (t, _), (_, w) in self.internet_culture.verdicts.items() if t == name), None)
-        goal = {"focus": f'<span style="background:{BLUE}">&nbsp;NEAR YOUR FOCUS&nbsp;</span>', "block": f'<span style="background:{RED}">&nbsp;NEAR WHAT YOU BLOCK&nbsp;</span>',
-                "ask": "GEMMA HASN'T DECIDED YET"}.get(mark, "outside your goal" if (self.internet_culture.focus or self.internet_culture.block) else "no goal set")
-        neighbours = self.internet_culture.graph.neighbours(name)[:8]
-        videos = db.execute("""select v.title || coalesce((select case r.liked when 1 then ' ▲' else ' ▼' end from ratings r where r.video_id = v.id order by r.at desc limit 1), ''),
-                                      exists(select 1 from shown s where s.video_id = v.id) + exists(select 1 from watched w where w.video_id = v.id),
-                                      (select o.hidden from outcomes o where o.video_id = v.id order by o.at desc limit 1)
-                               from video_topics vt join topics t on t.id = vt.topic_id join videos v on v.id = vt.video_id
-                               where t.name = ? and v.title != '' order by v.first_recorded desc limit 8""", (name,)).fetchall()
-        count = db.execute("select count(*) from video_topics vt join topics t on t.id = vt.topic_id where t.name = ?", (name,)).fetchone()[0]
-        self.details.setText(
-            f'<b style="font-size:15px">{e(name)}</b><br>{count} videos · {goal}' + (f"<br><i>Gemma: {e(why)}</i>" if why else "") +
-            "<br><br><b>NEIGHBOURS</b><br>" + (" · ".join(f'<a href="{e(u)}" style="color:{INK}">{e(u)}</a> {share:.0%}' for u, share in neighbours) or "none yet") +
-            "<br><br><b>VIDEOS</b><br>" + "<br>".join(f"{'▶' if s == 2 else '▣' if s else ('▢' if h is None else '▨')} {e(t[:44])}" for t, s, h in videos if t.strip()) +
-            "<br><span style='font-size:10px'>▶ WATCHED · ▣ SHOWN · ▨ HIDDEN · ▢ NOT ON SCREEN · ▲ LIKED · ▼ DISLIKED</span>")
 
     def edges(self, pos):
         """which window edges a point is on, for resizing"""

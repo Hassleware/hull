@@ -37,7 +37,7 @@ class Hull:
     def __init__(self, cfg, store, settings=None):
         self.address, self.store = cfg["rudder"]["address"], store
         self.after, self.when_missing = cfg["pipeline"]["after"], cfg["pipeline"]["when_missing"]
-        self.settings = settings  # hull/settings.py: steering and the goal, kept between runs
+        self.settings = settings  # hull/settings.py: steering and the goals, kept between runs
         self.steering = settings.get("steering", True) if settings else True
         self.stages = {}  # Hull stage id → its instance
         self.kinds = {}  # Hull stage id → (kind, config) from hull.toml
@@ -46,8 +46,10 @@ class Hull:
                 raise ValueError(f"hull.toml: unknown stage kind {s['kind']!r} (kinds: {', '.join(KINDS)})")
             self.stages[s["id"]] = KINDS[s["kind"]](s["config"], store)
             self.kinds[s["id"]] = (s["kind"], s["config"])
-        if settings and settings.get("goal"):
-            self._use_goal(settings.get("goal"))
+        old = settings.get("goal") if settings else None  # one goal, as earlier versions kept it
+        self.goals = (settings.get("goals") if settings else None) or ([old] if old and (old.get("focus") or old.get("block")) else [])
+        if self.goals:
+            self._use_goals(self.goals)
         self.status = {"rudder": False, "firefox": False, "filtering": False, "steering": False, "warming": False, "stages": []}
         self.listeners = []  # called with the status (on Hull's thread) whenever it changes
         self.loop, self.rudder = None, None
@@ -236,9 +238,9 @@ class Hull:
 
     def panel_message(self):
         s = self.store.stats()
-        goal = self.settings.get("goal") if self.settings else None
+        texts = [g["text"] for g in self.goals if g.get("text")]
         head = ("Hull is steering Rudder" if self.steering else "Hull is watching: Rudder filters on its own") + \
-               (f". Goal: {goal['text']}" if goal and goal.get("text") and self.steering else "")
+               (f". Goals: {'; '.join(texts)}" if texts and self.steering else "")
         return pb.Panel(id=APP, title="Hull", blocks=[
             pb.Block(text=head),
             pb.Block(stats=pb.StatGrid(stats=[
@@ -274,16 +276,20 @@ class Hull:
         """Rudder's own on/off switch"""
         self._soon(lambda r: r.SetEnabled(pb.Enabled(enabled=on)))
 
-    def _use_goal(self, goal):
+    def _use_goals(self, goals):
+        """all goals at once: their topics together. Goals may disagree about a topic (one for, another against):
+        that's allowed, and against wins for that topic, as Rudder is strict"""
+        together = lambda key: list(dict.fromkeys(t for g in goals for t in g.get(key, [])))
         for st in self.stages.values():
             if hasattr(st, "set_goal"):
-                st.set_goal(goal.get("focus", []), goal.get("block", []))
+                st.set_goal(together("focus"), together("block"))
 
-    def set_goal(self, goal):
-        """a new goal: {"text", "focus": [...], "block": [...]}; while steering, Rudder judges again with it"""
-        self._use_goal(goal)
+    def set_goals(self, goals):
+        """the goals: [{"text", "focus": [...], "block": [...]}]; while steering, Rudder judges again with them"""
+        self.goals = list(goals)
+        self._use_goals(self.goals)
         if self.settings:
-            self.settings.update(goal=goal)
+            self.settings.update(goals=self.goals, goal=None)
         if self.steering:
             self._soon(self.join)
         self._soon(lambda r: r.SetPanel(self.panel_message()))
