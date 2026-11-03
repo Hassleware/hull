@@ -12,6 +12,7 @@ from PySide6.QtSvgWidgets import QSvgWidget
 from PySide6.QtWidgets import (QApplication, QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu,
                                QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSlider, QSystemTrayIcon, QVBoxLayout, QWidget)
 
+from hull import autostart
 from hull.link import Hull
 from hull.mapview import InternetCultureMap, theme_share
 
@@ -487,9 +488,9 @@ EDGE = 6  # px at the window's edge that resize it
 class Window(QMainWindow):
     goal_applied = Signal()
 
-    def __init__(self, hull, engine, tray):
+    def __init__(self, hull, engine, tray, config="hull.toml"):
         super().__init__()
-        self.hull, self.engine, self.tray = hull, engine, tray
+        self.hull, self.engine, self.tray, self.config = hull, engine, tray, config
         self.setWindowTitle("Hull")
         self.setWindowIcon(QIcon(str(ASSETS / "hull-icon.svg")))
         self.resize(1180, 760)
@@ -536,6 +537,11 @@ class Window(QMainWindow):
         side.addWidget(self.steer)
         side.addWidget(self.filtering)
         side.addWidget(self.gemma)
+        if sys.platform == "win32":
+            self.login = Switch("START WITH WINDOWS", self.set_login)
+            self.login.setToolTip("Opens Hull in the tray when you log in; Hull starts Ollama and Rudder's bridge if they aren't running")
+            self.login.show_state(autostart.is_on())
+            side.addWidget(self.login)
         self.numbers = Numbers(["recorded", "shown", "watched", "hull hid"])
         side.addWidget(self.numbers)
         self.internet_culture = next((st for st in hull.stages.values() if hasattr(st, "graph")), None)
@@ -595,6 +601,10 @@ class Window(QMainWindow):
         self.timer.start()
         self.refresh()
         self.told = False
+
+    def set_login(self, on):
+        autostart.set_on(on, self.config)
+        self.login.show_state(autostart.is_on())
 
     def show_status(self, s):
         self.banner.show_status(s)
@@ -737,7 +747,7 @@ class Window(QMainWindow):
             self.tray.showMessage("Hull", "Hull keeps steering from the tray. Quit there to stop it.", QIcon(str(ASSETS / "hull-icon.svg")), 4000)
 
 
-def run(cfg, store, settings):
+def run(cfg, store, settings, tray=False, config="hull.toml"):
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
     app = QApplication(sys.argv)
     app.setApplicationName("Hull")
@@ -745,8 +755,9 @@ def run(cfg, store, settings):
     app.setStyleSheet(STYLE)
     hull = Hull(cfg, store, settings)
     engine = Engine(hull)
+    quiet = tray  # started by Windows at login: just the tray icon
     tray = QSystemTrayIcon(QIcon(str(ASSETS / "hull-icon-off.svg")))
-    window = Window(hull, engine, tray)
+    window = Window(hull, engine, tray, config)
 
     menu = QMenu()
     menu.addAction("Open Hull", lambda: (window.showNormal(), window.raise_(), window.activateWindow()))
@@ -762,5 +773,6 @@ def run(cfg, store, settings):
 
     app.aboutToQuit.connect(engine.stop)
     engine.start()
-    window.show()
+    if not quiet:
+        window.show()
     return app.exec()

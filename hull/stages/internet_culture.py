@@ -121,9 +121,13 @@ class InternetCulture:
     def warm(self):
         """load both models before Rudder sends anything (a cold Gemma takes ~50 s, past Rudder's 25); then keep an
         eye on Gemma (watch_gemma)"""
-        threading.Thread(target=self.watch_gemma, daemon=True, name="gemma").start()
-        if self.llm_on:
-            self.load()
+        try:
+            if self.llm_on:
+                if not self.ollama.ping():
+                    self.start_ollama()
+                self.load()
+        finally:  # the watch starts once Ollama's been dealt with here, so the two don't both start it
+            threading.Thread(target=self.watch_gemma, daemon=True, name="gemma").start()
         self.anchors(self.block + self.focus)
 
     def load(self):
@@ -172,7 +176,10 @@ class InternetCulture:
             if not self.llm_on:
                 self.set_health("off")
             elif self.health != "rebooting":
-                self.set_health("ready" if self.ollama.ping() else "down")
+                up = self.ollama.ping()
+                if not up and self.health != "down":  # it just went: start it again once, before calling it down
+                    up = self.start_ollama(wait=30)
+                self.set_health("ready" if up else "down")
             if self.gemma_ok() and not self.draining and self.queued():
                 self.drain()
             time.sleep(every)
@@ -220,6 +227,22 @@ class InternetCulture:
         if self.graph.topics_of(vid) is None:
             return self.tag(self.stored(vid))
 
+    def start_ollama(self, wait=60):
+        """start Ollama (its app on Windows, which runs its server; else `ollama serve`) and wait for it to answer"""
+        log.info("starting Ollama")
+        if sys.platform == "win32":
+            app = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Ollama", "ollama app.exe")
+            command = [app] if os.path.exists(app) else [shutil.which("ollama") or "ollama", "serve"]
+            subprocess.Popen(command, creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW, close_fds=True)
+        else:
+            subprocess.Popen([shutil.which("ollama") or "ollama", "serve"], start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        for _ in range(wait):
+            if self.ollama.ping():
+                return True
+            time.sleep(1)
+        return False
+
     def reboot(self):
         """restart Ollama and load Gemma again (after a crash); the queue drains once it's back"""
         self.set_health("rebooting")
@@ -227,17 +250,9 @@ class InternetCulture:
             if sys.platform == "win32":
                 for image in ("ollama app.exe", "ollama.exe"):
                     subprocess.run(["taskkill", "/IM", image, "/F"], capture_output=True)
-                app = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Ollama", "ollama app.exe")
-                command = [app] if os.path.exists(app) else [shutil.which("ollama") or "ollama", "serve"]
-                subprocess.Popen(command, creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW, close_fds=True)
             else:
                 subprocess.run(["pkill", "-f", "ollama serve"], capture_output=True)
-                subprocess.Popen([shutil.which("ollama") or "ollama", "serve"], start_new_session=True,
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            for _ in range(60):  # up to a minute for Ollama to answer
-                if self.ollama.ping():
-                    break
-                time.sleep(1)
+            self.start_ollama()
             if self.llm_on:
                 self.load()
             self.set_health("ready" if self.ollama.ping() else "down")

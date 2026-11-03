@@ -39,6 +39,15 @@ Hull opens its window, loads the models, joins Rudder's pipeline right after Rud
 
 Hull checks every video Rudder filters (the home page, the sidebar beside a video, search results, channel pages, Shorts) before it's shown. It also maps every video Rudder reports, whichever stage decided it, and every video you like or dislike, watched or not (`WatchFeedback`): Gemma tags it in the background, so your map holds all of it.
 
+## Starting up
+
+Hull brings up what it needs:
+- **Rudder's bridge.** If nothing answers on 127.0.0.1:7833, Hull runs Rudder's bridge itself, on a thread of its own (`hull/rudder/bridge.py`, copied from the Rudder repo by `scripts/sync_proto.py`); Firefox's Rudder finds it within seconds. Set `start_bridge = false` in `hull.toml` to leave that to you. The bridge goes when Hull does.
+- **Ollama.** If it isn't answering when Gemma's needed, Hull starts it (its Windows app, or `ollama serve`); if it stops answering later, Hull starts it once more before calling Gemma down.
+- **Itself, at login.** *Start with Windows* puts Hull in your user's startup list (no admin rights): Windows opens it in the tray (`--tray`) when you log in.
+
+From nothing to steering takes about 20 seconds, most of it loading Gemma.
+
 ## The app
 
 - **The banner** says what Hull is doing, first thing:

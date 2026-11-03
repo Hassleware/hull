@@ -1,7 +1,8 @@
 # Hull's settings. Every Hull stage becomes a stage in Rudder's pipeline.
 
 [rudder]
-address = "127.0.0.1:7833"  # Rudder's API (start Rudder's bridge: bridge/bridge.py in the Rudder repo)
+address = "127.0.0.1:7833"  # Rudder's API, served by Rudder's bridge
+start_bridge = true          # if no bridge is running, Hull runs Rudder's bridge itself
 
 [pipeline]
 after = "your-clicks"  # Hull's stages go right after this Rudder stage: only your own ratings come first

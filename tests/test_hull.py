@@ -555,6 +555,28 @@ class TestGemmaSwitch(unittest.TestCase):
             store.db.close()
 
 
+class TestStartup(unittest.TestCase):
+    def test_runs_rudders_bridge_only_when_none_is_running(self):
+        import socket
+        hull = Hull({"rudder": {"address": "127.0.0.1:7833"}, "pipeline": {"after": "your-clicks", "when_missing": "hide"}, "stage": []}, None)
+        try:
+            socket.create_connection(("127.0.0.1", 7833), timeout=1).close()
+            self.assertFalse(hull.ensure_bridge())  # one's running (Rudder's own): Hull uses it
+        except OSError:
+            self.assertTrue(hull.ensure_bridge())  # none: Hull runs Rudder's bridge
+            for _ in range(50):
+                try:
+                    socket.create_connection(("127.0.0.1", 7833), timeout=1).close()
+                    break
+                except OSError:
+                    time.sleep(0.1)
+            self.assertFalse(hull.ensure_bridge())  # and now it answers
+
+    def test_start_with_windows_command(self):
+        from hull import autostart
+        self.assertIn("-m hull --tray --config", autostart.command("hull.toml"))
+
+
 class TestCaptions(unittest.TestCase):
     def test_a_watched_video_is_tagged_again_from_whats_said(self):
         with tempfile.TemporaryDirectory() as tmp:

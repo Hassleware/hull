@@ -16,6 +16,7 @@ def main():
     frozen = getattr(sys, "frozen", False)  # Hull.exe: its settings and data live next to it
     home = Path(sys.executable).parent if frozen else Path.cwd()
     ap.add_argument("--config", default=str(home / "hull.toml"))
+    ap.add_argument("--tray", action="store_true", help="start in the tray, no window (how Windows starts Hull at login)")
     args = ap.parse_args()
     if frozen and not Path(args.config).exists():  # first run: the default settings, to edit
         shutil.copy(Path(sys._MEIPASS) / "hull.toml", args.config)
@@ -33,7 +34,7 @@ def main():
         return
     if args.command == "app":
         from hull.app import run  # Qt only loads for the app
-        raise SystemExit(run(cfg, store, Settings(cfg["data"]["folder"])))
+        raise SystemExit(run(cfg, store, Settings(cfg["data"]["folder"]), tray=args.tray, config=args.config))
     try:
         asyncio.run(Hull(cfg, store, Settings(cfg["data"]["folder"])).main())
     except KeyboardInterrupt:

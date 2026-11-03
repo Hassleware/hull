@@ -15,7 +15,7 @@ strict, until Hull runs again or `python -m hull leave`.
 
 The desktop app (hull/app.py) runs this on a thread of its own and calls the thread-safe methods at the bottom.
 """
-import asyncio, hashlib, json, logging, threading, time
+import asyncio, hashlib, json, logging, socket, threading, time
 from pathlib import Path
 
 import grpc
@@ -38,6 +38,7 @@ def ours(stage):
 class Hull:
     def __init__(self, cfg, store, settings=None):
         self.address, self.store = cfg["rudder"]["address"], store
+        self.start_bridge = cfg["rudder"].get("start_bridge", True)  # run Rudder's bridge if none is running
         self.after, self.when_missing = cfg["pipeline"]["after"], cfg["pipeline"]["when_missing"]
         self.settings = settings  # hull/settings.py: steering and the goals, kept between runs
         self.steering = settings.get("steering", True) if settings else True
@@ -92,9 +93,31 @@ class Hull:
         return out
 
     # ---- running ----
+    def ensure_bridge(self):
+        """no bridge answering on Rudder's port? Run Rudder's bridge (copied in hull/rudder/bridge.py) on a thread of
+        Hull's own, so Firefox's Rudder and Hull can meet; it goes when Hull does"""
+        host, _, port = self.address.rpartition(":")
+        try:
+            socket.create_connection((host or "127.0.0.1", int(port)), timeout=1).close()
+            return False  # one's running already: use it
+        except OSError:
+            pass
+        from hull.rudder import bridge
+
+        def serve():
+            try:
+                asyncio.run(bridge.main())
+            except Exception as e:
+                log.warning("Rudder's bridge stopped: %s", e)
+        threading.Thread(target=serve, daemon=True, name="rudder-bridge").start()
+        log.info("started Rudder's bridge (127.0.0.1:7833 for apps, 127.0.0.1:7834 for Firefox)")
+        return True
+
     async def main(self):
         self.loop = asyncio.get_running_loop()
         try:
+            if self.start_bridge:
+                await asyncio.to_thread(self.ensure_bridge)
             await self.warm()
             await self.run()
         finally:
