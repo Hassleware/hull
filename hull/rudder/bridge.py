@@ -3,13 +3,15 @@
 # connect over gRPC on 127.0.0.1:7833 (rudder.proto). Apps run "app" stages of Rudder's filtering pipeline, change the
 # pipeline, read every video Rudder sees, test, time, and show panels in the popup.
 # Usage: pip install -r requirements.txt, then python bridge.py
-import asyncio, collections, itertools, json, time
+import asyncio, collections, itertools, json, os, time
 import grpc, websockets
 from google.protobuf.json_format import MessageToDict, ParseDict
 from grpc_reflection.v1alpha import reflection
 from hull.rudder import rudder_pb2 as pb, rudder_pb2_grpc as rpc
 
-WS_PORT, GRPC_PORT, TIMEOUT = 7834, 7833, 25  # under the extension's own 30 s
+# other ports only for tests (RUDDER_WS_PORT, RUDDER_GRPC_PORT), so a test bridge never meets your own Firefox
+WS_PORT, GRPC_PORT = int(os.environ.get("RUDDER_WS_PORT", 7834)), int(os.environ.get("RUDDER_GRPC_PORT", 7833))
+TIMEOUT = 25  # under the extension's own 30 s
 as_dict = lambda m: MessageToDict(m, preserving_proto_field_name=True)
 
 
