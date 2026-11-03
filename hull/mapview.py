@@ -18,7 +18,7 @@ It reads at every zoom (apply_detail, on every zoom, pan and resize):
 import math
 
 import numpy as np
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QImage, QPainter, QPainterPath, QPainterPathStroker, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import (QGraphicsEllipseItem, QGraphicsItem, QGraphicsLineItem, QGraphicsPathItem, QGraphicsPixmapItem, QGraphicsRectItem,
                                QGraphicsScene, QGraphicsSimpleTextItem, QGraphicsView)
@@ -412,9 +412,11 @@ class InternetCultureMap(QGraphicsView):
         self.parts = dict(names=names, counts=counts, group=group, xy=xy, middles=middles, lows=lows, highs=highs, big=big, span=span, inside=inside, across=across,
                           bundles=bundles, names_of=names_of, titles=titles, font=QFontMetricsF(font), dots=dots, born=np.array(born, float),
                           seen=np.ones(len(names), bool))
-        scene.setSceneRect(QRectF(*xy.min(0), *(xy.max(0) - xy.min(0))).adjusted(-80, -60, 200, 60))  # room for names
+        far = 3 * float((xy.max(0) - xy.min(0)).max())  # plenty of room to drag around in, at any zoom
+        scene.setSceneRect(QRectF(*xy.min(0), *(xy.max(0) - xy.min(0))).adjusted(-far, -far, far, far))
+        self.home = QRectF(*xy.min(0), *(xy.max(0) - xy.min(0))).adjusted(-80, -60, 200, 60)
         if not self.fitted:
-            self.fitInView(scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+            self.fitInView(self.home, Qt.AspectRatioMode.KeepAspectRatio)
             self.fitted = True
         self.show_time(self.at, fine=True)
 
@@ -508,18 +510,37 @@ class InternetCultureMap(QGraphicsView):
             placed.append(rect)
             t.setVisible(True)
 
+    def soon(self):
+        """names placed once moving pauses, so dragging and zooming stay smooth"""
+        if not hasattr(self, "_soon"):
+            self._soon = QTimer(self, singleShot=True, interval=60, timeout=self.apply_detail)
+        self._soon.start()
+
     def wheelEvent(self, e):
         f = 1.15 if e.angleDelta().y() > 0 else 1 / 1.15
         self.scale(f, f)
-        self.apply_detail()
+        self.soon()
 
     def scrollContentsBy(self, dx, dy):
         super().scrollContentsBy(dx, dy)
-        self.apply_detail()
+        self.soon()
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
-        self.apply_detail()
+        self.soon()
+
+    def mousePressEvent(self, e):
+        self._down = e.position()
+        super().mousePressEvent(e)
+
+    def mouseReleaseEvent(self, e):
+        super().mouseReleaseEvent(e)
+        if (e.position() - getattr(self, "_down", e.position())).manhattanLength() < 5:  # a click, not a drag
+            item = self.itemAt(e.position().toPoint())
+            while item is not None and not isinstance(item, Dot):
+                item = item.parentItem()
+            if item is not None:
+                self.picked.emit(item.name)
 
 
 class Dot(QGraphicsEllipseItem):
@@ -528,7 +549,3 @@ class Dot(QGraphicsEllipseItem):
         self.name, self.picked = name, picked
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setAcceptHoverEvents(True)
-
-    def mousePressEvent(self, e):
-        self.picked.emit(self.name)
-        e.accept()
