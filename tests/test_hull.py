@@ -672,6 +672,31 @@ class TestDraftHoldsUp(unittest.TestCase):
         self.assertEqual(o.json("m", "p", {}), {"topics": ["a"]})
 
 
+class TestRatingsOnTheMap(unittest.TestCase):
+    def test_dislikes_go_red_likes_go_blue_and_always_show(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(tmp)
+            c = internet_culture(store, FakeOllama())
+            c.graph.attest("bad", ["minecraft speedruns", "video games"])
+            c.graph.attest("good", ["celeste", "video games"])
+            c.graph.attest("other", ["cooking"])
+            for i in range(6):  # video games is a big field: mostly on videos that aren't minecraft speedruns
+                c.graph.attest(f"g{i}", ["video games"])
+            c.set_goal([], ["celeste"])  # a goal that blocks celeste
+            store.rated(Video("bad", title="MC speedrun"), False)
+            store.rated(Video("good", title="Celeste"), True)
+            c.rating()
+            m = c.marks(c.graph.names)
+            self.assertEqual(m.get("minecraft speedruns"), "block")  # the dislike's most specific topic: red
+            self.assertNotEqual(m.get("video games"), "block")  # not the broad one
+            self.assertEqual(m.get("celeste"), "focus")  # liked: blue, though the goal blocks it
+            self.assertEqual(c.judge(["minecraft speedruns"]).decision, "hide")
+            self.assertEqual(c.judge(["celeste", "video games"]).decision, "pass")
+            self.assertEqual(c.focus, [])  # a like doesn't make Hull show only what you liked
+            self.assertEqual(c.judge(["cooking"]).decision, "pass")
+            store.db.close()
+
+
 class TestRepeatsPages(unittest.TestCase):
     def test_repeats_hidden_everywhere_but_searches_and_channel_pages(self):
         from hull.stages.repeats import Repeats

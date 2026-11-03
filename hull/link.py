@@ -240,6 +240,7 @@ class Hull:
             v = Video.from_pb(f.video)
             self.store.rated(v, f.like)
             await self.tell("seen", v)
+            await self.tell("rating", v, f.like)
 
     async def tell(self, hook, *args):
         """pass news to every stage that wants it (a method named hook), in a worker thread; a stage that fails is

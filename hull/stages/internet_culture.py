@@ -34,6 +34,7 @@ from PIL import Image
 
 from hull.graph import Graph
 from hull.ollama import Ollama
+from hull.stages.taste import rated_topics
 from hull.video import Result, Video
 
 log = logging.getLogger("hull")
@@ -100,6 +101,10 @@ class InternetCulture:
         self.tagging, self.lock = {}, threading.RLock()
         self.block, self.block_at = [t.lower() for t in config.get("block", [])], config.get("block_at", 0.85)
         self.focus, self.focus_at = [t.lower() for t in config.get("focus", [])], config.get("focus_at", 0.75)
+        # your ratings on the map (taste.rated_topics): a dislike's most specific topic joins what's blocked (and the
+        # area around it); a like's is always shown, whatever a goal or a dislike says
+        self.goal_focus, self.goal_block = list(self.focus), list(self.block)
+        self.liked, self.disliked, self.rated_at = set(), set(), 0.0
         self.block_ask, self.focus_ask = config.get("block_ask", 0.7), config.get("focus_ask", 0.62)
         self.seed = config.get("area_seed", 0.85)
         self.reach = {"block": (config.get("block_link", 0.5), config.get("block_hops", 1)),
@@ -471,6 +476,7 @@ class InternetCulture:
         """what the goal does with each topic, for the internet culture map: "focus", "block", "ask" (Gemma hasn't decided yet) or
         None; None for all of them while the goal's topics aren't embedded yet. Only what's known: it never asks Gemma or
         embeds anything new."""
+        self.ratings()
         if any(n not in self.anchor_vecs for n in self.focus + self.block):
             return None
         out = {}
@@ -493,8 +499,31 @@ class InternetCulture:
 
     def set_goal(self, focus, block):
         """the goals' topics together; one in both lists (goals that disagree) counts as against"""
-        self.block = list(dict.fromkeys(t.lower() for t in block))
-        self.focus = [t for t in dict.fromkeys(t.lower() for t in focus) if t not in self.block]
+        self.goal_block = list(dict.fromkeys(t.lower() for t in block))
+        self.goal_focus = [t for t in dict.fromkeys(t.lower() for t in focus) if t not in self.goal_block]
+        self.merge()
+
+    def merge(self):
+        """the goals plus your ratings: disliked topics blocked, liked ones never"""
+        self.block = [t for t in dict.fromkeys(self.goal_block + sorted(self.disliked)) if t not in self.liked]
+        self.focus = [t for t in self.goal_focus if t not in self.block]
+        for t in self.block:  # map topics have their vectors already: no model needed
+            if t in self.graph.index:
+                self.anchor_vecs.setdefault(t, self.graph.vecs[self.graph.index[t]])
+
+    def rating(self, *_):
+        """a like or dislike came in (link.py): look again at once"""
+        self.rated_at = 0.0
+
+    def ratings(self, every=5.0):
+        """refresh what your ratings put on the map (at most every few seconds: videos get tagged after they're rated)"""
+        if time.monotonic() - self.rated_at < every:
+            return
+        self.rated_at = time.monotonic()
+        liked, disliked = rated_topics(self.db)
+        if (liked, disliked) != (self.liked, self.disliked):
+            self.liked, self.disliked = liked, disliked
+            self.merge()
 
     def anchors(self, names):
         missing = [n for n in names if n not in self.anchor_vecs]
@@ -530,10 +559,13 @@ class InternetCulture:
         anchors, other = (self.focus, self.block) if kind == "focus" else (self.block, self.focus)
         if not anchors:
             return set()
-        return self.graph.area(self.anchors(anchors)[1], self.seed, *self.reach[kind], keep_out=frozenset(other))
+        return self.graph.area(self.anchors(anchors)[1], self.seed, *self.reach[kind], keep_out=frozenset(other) | self.liked)
 
     def side(self, topic):
-        """"focus", "block" or None for one topic: the goal's own topics first, then the areas around them"""
+        """"focus", "block" or None for one topic: one you liked first (blue: always shown), then the goal's own topics,
+        then the areas around them"""
+        if topic in self.liked:
+            return "focus"
         if topic in self.block:
             return "block"
         if topic in self.focus:
@@ -546,6 +578,9 @@ class InternetCulture:
 
     def judge(self, topics):
         fields = {"topics": "; ".join(topics)}
+        liked = next((t for t in topics if t in self.liked), None)
+        if liked:  # a topic you liked: Hull doesn't hide it (Rudder's own filters still can)
+            return Result("pass", f"you liked videos about {liked}", fields)
         sides = [self.side(t) for t in topics]
         blocked = [t for t, s in zip(topics, sides) if s == "block"]
         wanted = [t for t, s in zip(topics, sides) if s == "focus"]
@@ -606,6 +641,7 @@ class InternetCulture:
             return Result("hide", f"Gemma is off and its title can't be read ({e})"[:150], fields)
 
     def decide(self, videos):
+        self.ratings()
         end = time.monotonic() + self.budget
         topics = self.topics(videos)
         results = [self.judge(t) if t else self.by_title(v) if not self.free() else Result("hide", "not tagged yet")

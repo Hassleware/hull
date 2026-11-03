@@ -7,7 +7,8 @@ Two kinds of evidence, both from Gemma's reading of the videos:
     liked, is hidden;
   - topics: a topic among a video's most specific ones that you've disliked on at least `topic_dislikes` videos and
     never liked is hidden wherever it turns up.
-Videos you rated yourself are left to Rudder (its your-clicks stage). Place this stage after the internet culture
+Videos you rated yourself are left to Rudder (its your-clicks stage). A video with a topic you liked (rated_topics) is
+never hidden here. Place this stage after the internet culture
 stage, so videos are tagged before it reads them.
 
 config: { "near": 0.74, "margin": 0.03, "topic_dislikes": 2, "embed_model": "embeddinggemma", "ollama": "http://127.0.0.1:11434" }
@@ -19,6 +20,20 @@ import numpy as np
 from hull.graph import PREFIX, SCHEMA
 from hull.ollama import Ollama
 from hull.video import Result
+
+
+def rated_topics(db):
+    """your ratings on the map: each rated video's most specific topic (Gemma tags it first) → (liked, disliked) sets.
+    A topic liked at least as often as it's disliked is liked: likes protect"""
+    n = {}
+    for name, liked in db.execute("""select t.name, r.liked from ratings r
+                                     join video_topics vt on vt.video_id = r.video_id
+                                      and vt.rank = (select min(rank) from video_topics where video_id = r.video_id)
+                                     join topics t on t.id = vt.topic_id
+                                     where r.at = (select max(at) from ratings r2 where r2.video_id = r.video_id)"""):
+        n.setdefault(name, [0, 0])[0 if liked else 1] += 1
+    liked = {t for t, (up, down) in n.items() if up >= down}
+    return liked, set(n) - liked
 
 
 class Taste:
@@ -75,10 +90,13 @@ class Taste:
         for vid, *_, l in rated:
             for t in self.topics(vid):
                 tally.setdefault(t, [0, 0])[0 if l else 1] += 1
-        out = []
+        out, protected = [], rated_topics(self.db)[0]
         for v in videos:
             if v.id in mine:
                 out.append(Result())  # rated: Rudder decides it by your rating
+                continue
+            if protected & set(self.topics(v.id)):  # a topic you liked: always shown (by Hull)
+                out.append(Result())
                 continue
             x = vecs[v.id]
             best = lambda group: max(((float(x @ vecs[vid]), t) for vid, t in group), default=(-1.0, ""))

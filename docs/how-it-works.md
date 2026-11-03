@@ -140,6 +140,8 @@ A topic that mostly lives around your goal joins it: around "video games", Roblo
    Every label is kept (`draft_labels`, by the goal's words). Drafting the same goal again sorts only topics it hasn't seen yet, and a draft that stops partway picks up where it left off. Change the goal's words for a fresh draft. `draft_near` and `draft_linked` in the internet culture stage's settings change the 600 and 300.
 3. Your map's consensus checks Gemma: a topic labelled "for" stays only if it's clearly alike in meaning or sits in the area around clearly-wanted topics, and a topic labelled "against" that sits in that area is dropped unless you named it.
 
+**Your ratings** are on the map too. A video you 👎 turns its most specific topic red (Gemma tags the exact subject first: "minecraft speedruns", not "video games"), and it's blocked like a goal's: its area around it too. A video you 👍 turns its most specific topic blue: Hull never hides a video with that topic, whatever a goal or a dislike says (Rudder's own word filters still can), and a like doesn't make Hull show only what you liked. A topic liked at least as often as it's disliked counts as liked.
+
 A video is then decided by its topics: the goal's own topics are fixed, then the areas around them; with both sides, the video's topics vote, the most specific counting most (a GTA trailer is a game video even if trailers are against the goal); with only things to avoid, any one of them hides it.
 
 Topics outside every area (new ones without links yet) are judged by meaning. How near a video is to a topic is the best of its topics' relatedness to it. Relatedness is the larger of:

@@ -10,7 +10,7 @@ Solution: Hull is the ship under the Rudder. It runs on your own computer, and n
 
 <p align="center"><img src="docs/goal.png" alt="Your goals in plain words, turned into topics by Gemma" width="366"></p>
 
-Then you tell Hull what you want, in your own words: "I'm learning Bayesian statistics. Nothing else." Gemma goes through the topics on your map near your goal and sorts them: for your goal, against it, or neither. Then you see your goal on your map: blue is what you'll get, red is what you won't. Click any topic to change it before you press Apply. Hull lets through the videos near what's for, and hides what's against, even the ones you never thought to block. You can keep as many goals as you like at once. And it shows you each video only once, copies uploaded under a new name included.
+Then you tell Hull what you want, in your own words: "I'm learning Bayesian statistics. Nothing else." Gemma goes through the topics on your map near your goal and sorts them: for your goal, against it, or neither. Then you see your goal on your map: blue is what you'll get, red is what you won't. Click any topic to change it before you press Apply. Your 👍 and 👎 in Rudder land on the map too: what you dislike turns red, and what you like turns blue and always gets through. Hull lets through the videos near what's for, and hides what's against, even the ones you never thought to block. You can keep as many goals as you like at once. And it shows you each video only once, copies uploaded under a new name included.
 
 Hull learns your taste too. Every 👍 and 👎 you give in Rudder goes to Hull, and it hides new videos that are really like the ones you disliked, and topics you keep disliking.
 
